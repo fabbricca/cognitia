@@ -272,12 +272,40 @@ def create_app() -> FastAPI:
             await websocket.close()
             return
         
-        # Create bridge to backend
+        # Create bridge to backend (optional - may not be available in K8s-only mode)
         bridge = WebSocketBridge(websocket, user_id)
+        backend_available = await bridge.connect_to_backend()
         
-        if not await bridge.connect_to_backend():
-            await websocket.send_json({"type": "error", "message": "Backend connection failed"})
-            await websocket.close()
+        if not backend_available:
+            # Backend not available - send warning but keep connection open for text-only mode
+            logger.warning(f"[{user_id}] Backend not available, running in text-only mode")
+            await websocket.send_json({
+                "type": "status", 
+                "message": "Voice backend not available. Text chat only.",
+                "mode": "text-only"
+            })
+            
+            # Keep connection alive for potential future features
+            try:
+                while True:
+                    msg = await websocket.receive_json()
+                    msg_type = msg.get("type")
+                    
+                    if msg_type == "ping":
+                        await websocket.send_json({"type": "pong"})
+                    elif msg_type == "text":
+                        # Could handle text messages via LLM API here in future
+                        await websocket.send_json({
+                            "type": "info",
+                            "message": "Text processing not yet implemented in K8s mode"
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "info", 
+                            "message": f"Received {msg_type}, but voice backend is offline"
+                        })
+            except WebSocketDisconnect:
+                logger.info(f"[{user_id}] WebSocket disconnected (text-only mode)")
             return
         
         bridge.running = True

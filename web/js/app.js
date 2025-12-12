@@ -347,18 +347,22 @@ class CognitiaApp {
     // Data loading
     async loadChats() {
         try {
-            this.chats = await api.getChats();
+            const response = await api.getChats();
+            this.chats = response.chats || [];
             this.renderChatList();
         } catch (error) {
             console.error('Failed to load chats:', error);
+            this.chats = [];
         }
     }
 
     async loadCharacters() {
         try {
-            this.characters = await api.getCharacters();
+            const response = await api.getCharacters();
+            this.characters = response.characters || [];
         } catch (error) {
             console.error('Failed to load characters:', error);
+            this.characters = [];
         }
     }
 
