@@ -74,6 +74,14 @@ def decode_token(token: str) -> Optional[TokenPayload]:
         return None
 
 
+def verify_token(token: str) -> Optional[str]:
+    """Verify a JWT token and return the user_id if valid."""
+    payload = decode_token(token)
+    if payload is None or payload.type != "access":
+        return None
+    return payload.sub
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> TokenPayload:

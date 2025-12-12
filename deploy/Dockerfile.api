@@ -19,9 +19,10 @@ RUN pip install --no-cache-dir \
     uvicorn[standard] \
     sqlalchemy[asyncio] \
     asyncpg \
+    aiosqlite \
     pydantic \
-    python-jose[cryptography] \
-    passlib[bcrypt] \
+    PyJWT \
+    bcrypt \
     python-multipart \
     aiofiles \
     loguru \
@@ -30,7 +31,9 @@ RUN pip install --no-cache-dir \
 
 # Copy source code
 COPY src/cognitia/api ./cognitia/api
-COPY src/cognitia/__init__.py ./cognitia/
+
+# Create minimal __init__.py (API doesn't need core module imports)
+RUN echo '"""Cognitia API Package."""\n__version__ = "0.1.0"' > ./cognitia/__init__.py
 
 # Create directories
 RUN mkdir -p /app/voice_models /app/web
