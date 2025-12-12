@@ -288,7 +288,10 @@ def create_app() -> FastAPI:
             logger.info(f"WebSocket closed for user: {user_id}")
     
     # Static files for web frontend (if exists) - must be last
-    web_dir = Path(__file__).parent.parent.parent.parent / "web"
+    # In Docker, web files are at /app/web, in development they're relative to package
+    web_dir = Path("/app/web")
+    if not web_dir.exists():
+        web_dir = Path(__file__).parent.parent.parent.parent / "web"
     if web_dir.exists():
         app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="static")
     

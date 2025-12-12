@@ -1,4 +1,4 @@
-"""Simple TUI for GLaDOS chat - 50 message buffer, no scroll."""
+"""Simple TUI for Cognitia chat - 50 message buffer, no scroll."""
 
 import asyncio
 import json
