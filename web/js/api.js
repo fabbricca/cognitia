@@ -143,7 +143,7 @@ export class ApiClient {
 
     // Character endpoints
     async getCharacters() {
-        return this.request('GET', '/api/characters');
+        return this.request('GET', '/api/characters/');
     }
 
     async getCharacter(id) {
@@ -159,9 +159,9 @@ export class ApiClient {
             };
             if (pthFile) formData.pth_file = pthFile;
             if (indexFile) formData.index_file = indexFile;
-            return this.request('POST', '/api/characters', formData, true);
+            return this.request('POST', '/api/characters/', formData, true);
         }
-        return this.request('POST', '/api/characters', { name, preprompt, voice_model: voiceModel });
+        return this.request('POST', '/api/characters/', { name, preprompt, voice_model: voiceModel });
     }
 
     async updateCharacter(id, data) {
@@ -180,7 +180,7 @@ export class ApiClient {
 
     // Chat endpoints
     async getChats() {
-        return this.request('GET', '/api/chats');
+        return this.request('GET', '/api/chats/');
     }
 
     async getChat(id) {
@@ -188,7 +188,7 @@ export class ApiClient {
     }
 
     async createChat(characterId, title = null) {
-        return this.request('POST', '/api/chats', { character_id: characterId, title });
+        return this.request('POST', '/api/chats/', { character_id: characterId, title });
     }
 
     async updateChat(id, data) {

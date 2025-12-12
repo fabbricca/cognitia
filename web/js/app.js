@@ -21,8 +21,9 @@ class CognitiaApp {
         this.ws = null;
         this.audio = new AudioManager();
 
-        // Config
-        this.wsUrl = `ws://${window.location.host}/ws`;
+        // Config - use wss:// for HTTPS, ws:// for HTTP
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        this.wsUrl = `${wsProtocol}//${window.location.host}/ws`;
 
         // DOM elements
         this.elements = {};
