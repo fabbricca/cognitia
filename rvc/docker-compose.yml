@@ -1,0 +1,25 @@
+services:
+  rvc:
+    build:
+      context: .
+      args:
+        HOST_UID: ${HOST_UID:-1000}
+    ports:
+      - '5050:5050'
+    volumes:
+      - ../rvc_models:/workspace/rvc_models
+      - ../data/rvc:/workspace/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

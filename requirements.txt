@@ -1,0 +1,15 @@
+sounddevice>=0.5.1
+levenshtein>=0.26.1
+loguru>=0.7.3
+jinja2>=3.1.5
+requests>=2.32.3
+textual>=1.0.0
+pyyaml>=6.0.2
+numba>=0.61.0
+soundfile>=0.13.0
+pydantic>=2.10.6
+httpx>=0.28.1
+rich>=14.0.0
+onnxruntime-gpu>=1.16.0
+litestar[standard,structlog]>=2.15.1
+uvicorn>=0.27.0
