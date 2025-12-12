@@ -16,7 +16,7 @@ A production-ready AI voice/text chat platform with:
 │                              EXTERNAL ACCESS                                     │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
-│    User Request (ai.iberu.me)                                                   │
+│    User Request (cognitia.iberu.me)                                                   │
 │              │                                                                   │
 │              ▼                                                                   │
 │    ┌─────────────────┐                                                          │
