@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -217,14 +217,19 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # API routes
-    app.include_router(auth_router, prefix="/api/v1")
-    app.include_router(characters_router, prefix="/api/v1")
-    app.include_router(chats_router, prefix="/api/v1")
+    # API routes (prefix /api to match frontend expectations)
+    app.include_router(auth_router, prefix="/api")
+    app.include_router(characters_router, prefix="/api")
+    app.include_router(chats_router, prefix="/api")
+    
+    # Favicon - return empty response to avoid 404
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        return Response(status_code=204)
     
     # Health check
     @app.get("/health", tags=["health"])
-    @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])
+    @app.get("/api/health", response_model=HealthResponse, tags=["health"])
     async def health_check():
         """Health check endpoint."""
         return HealthResponse()
