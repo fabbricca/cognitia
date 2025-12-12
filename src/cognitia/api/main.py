@@ -5,16 +5,19 @@ import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Optional, AsyncGenerator
 
+import httpx
 from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import verify_token
 from .cache import cache, init_cache, close_cache
-from .database import init_db
+from .database import init_db, get_session, Character, Chat, Message
 from .routes_auth import router as auth_router
 from .routes_characters import router as characters_router
 from .routes_chats import router as chats_router
@@ -23,6 +26,52 @@ from .schemas import HealthResponse
 # Backend connection settings
 BACKEND_HOST = os.getenv("COGNITIA_BACKEND_HOST", "10.0.0.15")
 BACKEND_PORT = int(os.getenv("COGNITIA_BACKEND_PORT", "5555"))
+
+# LLM API settings for text-only mode
+LLM_API_URL = os.getenv("LLM_API_URL", "http://10.0.0.15:8080/v1/chat/completions")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
+
+
+async def stream_llm_response(
+    messages: list[dict], 
+    system_prompt: str
+) -> AsyncGenerator[str, None]:
+    """Stream response from LLM API."""
+    full_messages = [{"role": "system", "content": system_prompt}] + messages
+    
+    headers = {"Content-Type": "application/json"}
+    if LLM_API_KEY:
+        headers["Authorization"] = f"Bearer {LLM_API_KEY}"
+    
+    payload = {
+        "model": LLM_MODEL,
+        "messages": full_messages,
+        "stream": True,
+        "temperature": 0.8,
+        "max_tokens": 1024,
+    }
+    
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        async with client.stream(
+            "POST",
+            LLM_API_URL,
+            json=payload,
+            headers=headers,
+        ) as response:
+            async for line in response.aiter_lines():
+                if line.startswith("data: "):
+                    data = line[6:]
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+                    except json.JSONDecodeError:
+                        continue
 
 
 class WebSocketBridge:
@@ -277,7 +326,7 @@ def create_app() -> FastAPI:
         backend_available = await bridge.connect_to_backend()
         
         if not backend_available:
-            # Backend not available - send warning but keep connection open for text-only mode
+            # Backend not available - run in text-only mode with direct LLM API
             logger.warning(f"[{user_id}] Backend not available, running in text-only mode")
             await websocket.send_json({
                 "type": "status", 
@@ -285,7 +334,11 @@ def create_app() -> FastAPI:
                 "mode": "text-only"
             })
             
-            # Keep connection alive for potential future features
+            # State for text-only mode
+            current_character_id: Optional[str] = None
+            current_system_prompt = "You are a helpful AI assistant."
+            conversation_history: list[dict] = []
+            
             try:
                 while True:
                     msg = await websocket.receive_json()
@@ -293,16 +346,60 @@ def create_app() -> FastAPI:
                     
                     if msg_type == "ping":
                         await websocket.send_json({"type": "pong"})
-                    elif msg_type == "text":
-                        # Could handle text messages via LLM API here in future
+                    
+                    elif msg_type == "character_switch":
+                        # Update current character
+                        current_character_id = msg.get("characterId")
+                        current_system_prompt = msg.get("systemPrompt", "You are a helpful AI assistant.")
+                        conversation_history = []  # Reset on character switch
+                        logger.info(f"[{user_id}] Switched to character: {current_character_id}")
                         await websocket.send_json({
                             "type": "info",
-                            "message": "Text processing not yet implemented in K8s mode"
+                            "message": "Character switched"
                         })
+                    
+                    elif msg_type == "text":
+                        user_message = msg.get("message", "").strip()
+                        if not user_message:
+                            continue
+                        
+                        # Add user message to history
+                        conversation_history.append({"role": "user", "content": user_message})
+                        
+                        # Keep only last 10 messages to avoid token limits
+                        if len(conversation_history) > 10:
+                            conversation_history = conversation_history[-10:]
+                        
+                        # Stream LLM response
+                        full_response = ""
+                        try:
+                            async for chunk in stream_llm_response(conversation_history, current_system_prompt):
+                                full_response += chunk
+                                await websocket.send_json({
+                                    "type": "text_chunk",
+                                    "chunk": chunk
+                                })
+                            
+                            # Send completion
+                            await websocket.send_json({
+                                "type": "text_complete",
+                                "full_text": full_response
+                            })
+                            
+                            # Add assistant response to history
+                            conversation_history.append({"role": "assistant", "content": full_response})
+                            
+                        except Exception as e:
+                            logger.error(f"[{user_id}] LLM error: {e}")
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"LLM error: {str(e)}"
+                            })
+                    
                     else:
                         await websocket.send_json({
                             "type": "info", 
-                            "message": f"Received {msg_type}, but voice backend is offline"
+                            "message": f"Received {msg_type}, but voice features are offline"
                         })
             except WebSocketDisconnect:
                 logger.info(f"[{user_id}] WebSocket disconnected (text-only mode)")

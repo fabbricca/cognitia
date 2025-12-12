@@ -403,7 +403,7 @@ class CognitiaApp {
         if (this.currentCharacter && this.ws) {
             this.ws.switchCharacter(
                 this.currentCharacter.id,
-                this.currentCharacter.preprompt,
+                this.currentCharacter.system_prompt,
                 this.currentCharacter.voice_model,
                 this.currentCharacter.rvc_model_path,
                 this.currentCharacter.rvc_index_path
@@ -643,7 +643,7 @@ class CognitiaApp {
         if (character) {
             this.elements.characterId.value = character.id;
             this.elements.characterNameInput.value = character.name;
-            this.elements.characterPreprompt.value = character.preprompt;
+            this.elements.characterPreprompt.value = character.system_prompt;
             this.elements.voiceModelSelect.value = character.voice_model || 'glados';
             this.elements.deleteCharacter.classList.remove('hidden');
         } else {
@@ -681,7 +681,7 @@ class CognitiaApp {
                 // Update existing
                 character = await api.updateCharacter(id, {
                     name,
-                    preprompt,
+                    system_prompt: preprompt,
                     voice_model: voiceModel
                 });
                 

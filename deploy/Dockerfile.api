@@ -27,7 +27,8 @@ RUN pip install --no-cache-dir \
     aiofiles \
     loguru \
     redis \
-    websockets
+    websockets \
+    httpx
 
 # Copy source code
 COPY src/cognitia/api ./cognitia/api

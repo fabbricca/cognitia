@@ -10,7 +10,7 @@ from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn
 import sounddevice as sd  # type: ignore
 
 from .core.engine import Cognitia, CognitiaConfig
-from .TTS import tts_glados
+from .TTS import get_speech_synthesizer
 from .utils import spoken_text_converter as stc
 from .utils.resources import resource_path
 
@@ -158,7 +158,7 @@ def say(text: str, config_path: str | Path = "cognitia_config.yaml") -> None:
     """
     Converts text to speech using the Cognitia TTS system and plays the generated audio.
     """
-    cognitia_tts = tts_glados.SpeechSynthesizer()
+    cognitia_tts = get_speech_synthesizer(voice="cognitia")
     converter = stc.SpokenTextConverter()
     converted_text = converter.text_to_spoken(text)
     # Generate the audio from the text

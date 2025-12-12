@@ -150,18 +150,18 @@ export class ApiClient {
         return this.request('GET', `/api/characters/${id}`);
     }
 
-    async createCharacter(name, preprompt, voiceModel = 'glados', pthFile = null, indexFile = null) {
+    async createCharacter(name, systemPrompt, voiceModel = 'glados', pthFile = null, indexFile = null) {
         if (pthFile || indexFile) {
             const formData = {
                 name,
-                preprompt,
+                system_prompt: systemPrompt,
                 voice_model: voiceModel
             };
             if (pthFile) formData.pth_file = pthFile;
             if (indexFile) formData.index_file = indexFile;
             return this.request('POST', '/api/characters/', formData, true);
         }
-        return this.request('POST', '/api/characters/', { name, preprompt, voice_model: voiceModel });
+        return this.request('POST', '/api/characters/', { name, system_prompt: systemPrompt, voice_model: voiceModel });
     }
 
     async updateCharacter(id, data) {
