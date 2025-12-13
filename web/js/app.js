@@ -742,8 +742,11 @@ class CognitiaApp {
                 document.querySelectorAll('audio').forEach(a => {
                     if (a !== audio && !a.paused) {
                         a.pause();
-                        a.closest('.audio-message')?.querySelector('.audio-play-btn')?.classList.remove('playing');
-                        a.closest('.audio-message')?.querySelector('.audio-play-btn').textContent = '▶';
+                        const otherPlayBtn = a.closest('.audio-message')?.querySelector('.audio-play-btn');
+                        if (otherPlayBtn) {
+                            otherPlayBtn.classList.remove('playing');
+                            otherPlayBtn.textContent = '▶';
+                        }
                     }
                 });
                 audio.play();
