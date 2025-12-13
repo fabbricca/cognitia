@@ -449,6 +449,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         max_tokens=data.get("max_tokens", 2048),
                     )
                     
+                    logger.info(f"Processing request: communication_type={request.communication_type}, with_audio={request.communication_type in (CommunicationType.AUDIO, CommunicationType.PHONE)}")
+                    
                     # Decide streaming behavior based on communication type
                     # Audio input -> Audio output, Text input -> Text output
                     if request.communication_type == CommunicationType.PHONE:
