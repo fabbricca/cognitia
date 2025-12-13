@@ -422,7 +422,7 @@ class Orchestrator:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
-                "stop": ["<|user|>", "<|system|>"],  # Stop at next turn
+                "stop": ["<|user|>", "<|system|>", "<|model|>"],  # Stop at next turn or model token
             }
         }
         
@@ -551,7 +551,8 @@ class Orchestrator:
         import re
         
         # First, split by sentence boundaries
-        sentence_pattern = r'(?<=[.!?])\s+'
+        # Use negative lookbehind to avoid splitting on ellipsis (...)
+        sentence_pattern = r'(?<=[^.])[.!?](?=[\s]+[A-Z])'
         sentences = re.split(sentence_pattern, text)
         
         chunks = []
