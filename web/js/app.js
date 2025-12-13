@@ -520,17 +520,24 @@ class CognitiaApp {
     handleTextComplete(msg) {
         const fullText = msg.content || this.currentStreamingText;
         
+        // If we don't have a streaming element (e.g., non-streaming mode), create one
+        if (!this.currentStreamingElement && fullText) {
+            this.currentStreamingElement = this.appendStreamingMessage('assistant');
+        }
+        
         if (this.currentStreamingElement) {
             this.updateStreamingMessage(this.currentStreamingElement, fullText);
             this.currentStreamingElement = null;
         }
 
-        // Save assistant message
-        if (this.currentChat) {
+        // Save assistant message (only if we have content)
+        if (this.currentChat && fullText && fullText.trim()) {
             api.createMessage(this.currentChat.id, fullText, 'assistant').catch(console.error);
         }
 
-        this.messages.push({ role: 'assistant', content: fullText });
+        if (fullText) {
+            this.messages.push({ role: 'assistant', content: fullText });
+        }
     }
 
     handleAudioResponse(msg) {

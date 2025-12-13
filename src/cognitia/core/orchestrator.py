@@ -183,12 +183,23 @@ class Orchestrator:
     
     def get_tts_model(self, voice: str) -> SpeechSynthesizerProtocol:
         """Get or load a TTS model for the given voice (thread-safe, lazy)."""
+        # Use default voice if requested one is not available
+        actual_voice = voice
         if voice not in self._tts_models:
             with self._model_lock:
                 if voice not in self._tts_models:
-                    logger.info(f"Loading TTS model for voice: {voice}...")
-                    self._tts_models[voice] = get_speech_synthesizer(voice)
-                    logger.info(f"TTS model loaded for voice: {voice}")
+                    try:
+                        logger.info(f"Loading TTS model for voice: {voice}...")
+                        self._tts_models[voice] = get_speech_synthesizer(voice)
+                        logger.info(f"TTS model loaded for voice: {voice}")
+                    except ValueError as e:
+                        # Voice not available, fall back to default
+                        logger.warning(f"Voice '{voice}' not available, using default: {self.default_voice}")
+                        actual_voice = self.default_voice
+                        if actual_voice not in self._tts_models:
+                            self._tts_models[actual_voice] = get_speech_synthesizer(actual_voice)
+                        # Also map the invalid voice to the default so we don't try again
+                        self._tts_models[voice] = self._tts_models[actual_voice]
         return self._tts_models[voice]
     
     # -------------------------------------------------------------------------
