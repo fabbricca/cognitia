@@ -58,7 +58,8 @@ class ModelContext:
     """AI model/character context."""
     model_id: str
     name: str
-    system_prompt: str
+    system_prompt: str  # Short behavior rules and constraints
+    persona_prompt: Optional[str] = None  # Detailed character biography/lorebook
     voice: str = "af_bella"
     rvc_model_path: Optional[str] = None
     rvc_index_path: Optional[str] = None
@@ -93,6 +94,7 @@ class ProcessingRequest:
     communication_type: CommunicationType = CommunicationType.TEXT
     # Pre-fetched context (from entrance)
     system_prompt: str = "You are a helpful AI assistant."
+    persona_prompt: Optional[str] = None  # Detailed character lorebook/biography
     conversation_history: list[dict] = field(default_factory=list)
     user_persona: Optional[str] = None
     model_name: str = "Assistant"
@@ -286,6 +288,7 @@ class Orchestrator:
             model_id=request.model_id,
             name=request.model_name,
             system_prompt=request.system_prompt,
+            persona_prompt=request.persona_prompt,
             voice=request.voice,
             rvc_model_path=request.rvc_model_path,
             rvc_index_path=request.rvc_index_path,
@@ -352,25 +355,53 @@ class Orchestrator:
         self,
         messages: list[dict],
         system_prompt: str,
+        persona_prompt: Optional[str] = None,
+        communication_type: CommunicationType = CommunicationType.TEXT,
     ) -> str:
         """
-        Format conversation in Pygmalion/Metharme style.
+        Format conversation in Pygmalion/Metharme style with optimized prompt structure.
         
         Uses special tokens: <|system|>, <|user|>, <|model|>
         This bypasses Ollama's chat template and gives us full control.
         
+        Following community best practices for Mythalion/TheBloke models:
+        - Short <|system|> block for behavior rules, channel rules, output format
+        - Separate persona/lorebook in <|user|> block for character details
+        - Channel mode tags (SMS, AUDIO, CALL) for phone-style interactions
+        
         Args:
             messages: Conversation messages with role/content
-            system_prompt: Character persona/system prompt
+            system_prompt: Short behavior rules and constraints
+            persona_prompt: Detailed character biography/lorebook (optional)
+            communication_type: Type of communication (text, audio, phone)
             
         Returns:
             Formatted prompt string for raw completion
         """
-        # Build the prompt with Pygmalion tokens
         prompt_parts = []
         
-        # System prompt with RP mode instruction
-        prompt_parts.append(f"<|system|>{system_prompt}")
+        # Determine channel mode based on communication type
+        channel_mode = "TEXT"
+        if communication_type == CommunicationType.AUDIO:
+            channel_mode = "AUDIO"
+        elif communication_type == CommunicationType.PHONE:
+            channel_mode = "CALL"
+        
+        # System prompt - short, directive behavior rules
+        # Add channel context if not already specified
+        enhanced_system = system_prompt
+        if "[SMS]" not in system_prompt and "[AUDIO]" not in system_prompt and "[CALL]" not in system_prompt:
+            # Add channel awareness hint for models that don't have it in their prompt
+            channel_hint = f"\n\n[Current channel mode: {channel_mode}]"
+            enhanced_system = system_prompt + channel_hint
+        
+        prompt_parts.append(f"<|system|>{enhanced_system}")
+        
+        # If persona prompt exists, add it as a separate user block (lorebook style)
+        # This follows community recommendations for Mythalion models
+        if persona_prompt:
+            prompt_parts.append(f"<|user|>[Character Persona]\n{persona_prompt}")
+            prompt_parts.append("<|model|>I understand. I will stay in character and follow the persona described above.")
         
         # Add conversation history
         for msg in messages:
@@ -392,6 +423,8 @@ class Orchestrator:
         self,
         messages: list[dict],
         system_prompt: str,
+        persona_prompt: Optional[str] = None,
+        communication_type: CommunicationType = CommunicationType.TEXT,
         temperature: float = 0.8,
         max_tokens: int = 2048,
     ) -> AsyncGenerator[str, None]:
@@ -403,15 +436,22 @@ class Orchestrator:
         
         Args:
             messages: Conversation messages
-            system_prompt: System prompt (character persona)
+            system_prompt: Short behavior rules and constraints
+            persona_prompt: Detailed character biography/lorebook (optional)
+            communication_type: Type of communication for channel hints
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
             
         Yields:
             Text chunks as they're generated
         """
-        # Format prompt in Pygmalion style
-        prompt = self._format_pygmalion_prompt(messages, system_prompt)
+        # Format prompt in Pygmalion style with separated system + persona
+        prompt = self._format_pygmalion_prompt(
+            messages, 
+            system_prompt, 
+            persona_prompt=persona_prompt,
+            communication_type=communication_type,
+        )
         
         # Use /api/generate for raw completion (bypasses Ollama's chat template)
         payload = {
@@ -456,6 +496,8 @@ class Orchestrator:
         self,
         messages: list[dict],
         system_prompt: str,
+        persona_prompt: Optional[str] = None,
+        communication_type: CommunicationType = CommunicationType.TEXT,
         temperature: float = 0.8,
         max_tokens: int = 2048,
     ) -> str:
@@ -464,7 +506,9 @@ class Orchestrator:
         
         Args:
             messages: Conversation messages
-            system_prompt: System prompt
+            system_prompt: Short behavior rules
+            persona_prompt: Character biography/lorebook
+            communication_type: Channel type
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
             
@@ -473,7 +517,12 @@ class Orchestrator:
         """
         full_response = ""
         async for chunk in self.stream_llm_response(
-            messages, system_prompt, temperature, max_tokens
+            messages, 
+            system_prompt, 
+            persona_prompt=persona_prompt,
+            communication_type=communication_type,
+            temperature=temperature, 
+            max_tokens=max_tokens,
         ):
             full_response += chunk
         return full_response
@@ -482,6 +531,8 @@ class Orchestrator:
         self,
         messages: list[dict],
         system_prompt: str,
+        persona_prompt: Optional[str] = None,
+        communication_type: CommunicationType = CommunicationType.TEXT,
         temperature: float = 0.8,
         max_tokens: int = 2048,
     ) -> AsyncGenerator[str, None]:
@@ -493,7 +544,9 @@ class Orchestrator:
         
         Args:
             messages: Conversation messages
-            system_prompt: System prompt
+            system_prompt: Short behavior rules
+            persona_prompt: Character biography/lorebook
+            communication_type: Channel type for hints
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
             
@@ -507,7 +560,12 @@ class Orchestrator:
         sentence_end_pattern = re.compile(r'[.!?]["\'»)]?\s*$')
         
         async for chunk in self.stream_llm_response(
-            messages, system_prompt, temperature, max_tokens
+            messages, 
+            system_prompt, 
+            persona_prompt=persona_prompt,
+            communication_type=communication_type,
+            temperature=temperature, 
+            max_tokens=max_tokens,
         ):
             buffer += chunk
             
@@ -751,8 +809,10 @@ class Orchestrator:
         llm_response = await self.get_full_llm_response(
             messages,
             context.enriched_system_prompt,
-            request.temperature,
-            request.max_tokens,
+            persona_prompt=context.model.persona_prompt,
+            communication_type=request.communication_type,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
         )
         logger.info(f"LLM response in {time.time() - llm_start:.2f}s: {len(llm_response)} chars")
         
@@ -853,8 +913,10 @@ class Orchestrator:
         async for chunk in self.stream_llm_response(
             messages,
             context.enriched_system_prompt,
-            request.temperature,
-            request.max_tokens,
+            persona_prompt=context.model.persona_prompt,
+            communication_type=request.communication_type,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
         ):
             full_response += chunk
             await on_text_chunk(chunk)

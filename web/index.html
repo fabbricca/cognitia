@@ -2,196 +2,452 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cognitia v3.0</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#00a884">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>Cognitia</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
     <!-- Login Screen -->
-    <div id="login-screen" class="screen">
+    <div id="login-screen" class="login-screen">
         <div class="login-container">
-            <div class="logo">
-                <pre class="ascii-logo">
- ██████╗ ██████╗  ██████╗ ███╗   ██╗██╗████████╗██╗ █████╗ 
-██╔════╝██╔═══██╗██╔════╝ ████╗  ██║██║╚══██╔══╝██║██╔══██╗
-██║     ██║   ██║██║  ███╗██╔██╗ ██║██║   ██║   ██║███████║
-██║     ██║   ██║██║   ██║██║╚██╗██║██║   ██║   ██║██╔══██║
-╚██████╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   ██║██║  ██║
- ╚═════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚═╝╚═╝  ╚═╝
-                </pre>
-                <p class="tagline">// MULTI-CHARACTER AI INTERFACE v3.0</p>
-            </div>
+            <h1>Cognitia</h1>
+            <p>AI Voice Assistant</p>
             
-            <form id="login-form" class="form">
+            <form id="login-form">
+                <h2>Welcome back</h2>
                 <div class="form-group">
-                    <label for="login-email">&gt; EMAIL</label>
-                    <input type="email" id="login-email" name="email" required autocomplete="email">
+                    <label for="login-email">Email</label>
+                    <input type="email" id="login-email" name="email" required autocomplete="email" placeholder="Enter your email">
                 </div>
                 <div class="form-group">
-                    <label for="login-password">&gt; PASSWORD</label>
-                    <input type="password" id="login-password" name="password" required autocomplete="current-password">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" name="password" required autocomplete="current-password" placeholder="Enter your password">
                 </div>
-                <div class="form-error hidden" id="login-error"></div>
-                <div class="form-actions">
-                    <button type="button" class="btn btn-primary" id="login-submit">LOGIN</button>
-                    <button type="button" class="btn btn-secondary" id="show-register">REGISTER</button>
-                </div>
+                <div id="login-error" class="form-error hidden"></div>
+                <button type="submit" class="btn btn-primary" id="login-submit">Sign In</button>
+                <p class="form-footer">Don't have an account? <a href="#" id="show-register">Sign up</a></p>
             </form>
             
-            <form id="register-form" class="form hidden">
+            <form id="register-form" class="hidden">
+                <h2>Create account</h2>
                 <div class="form-group">
-                    <label for="register-email">&gt; EMAIL</label>
-                    <input type="email" id="register-email" name="email" required>
+                    <label for="register-email">Email</label>
+                    <input type="email" id="register-email" name="email" required placeholder="Enter your email">
                 </div>
                 <div class="form-group">
-                    <label for="register-password">&gt; PASSWORD (min 8 chars)</label>
-                    <input type="password" id="register-password" name="password" required minlength="8">
+                    <label for="register-password">Password</label>
+                    <input type="password" id="register-password" name="password" required minlength="8" placeholder="At least 8 characters">
                 </div>
-                <div class="form-error hidden" id="register-error"></div>
-                <div class="form-actions">
-                    <button type="button" class="btn btn-primary" id="register-submit">CREATE ACCOUNT</button>
-                    <button type="button" class="btn btn-secondary" id="show-login">BACK TO LOGIN</button>
-                </div>
+                <div id="register-error" class="form-error hidden"></div>
+                <button type="submit" class="btn btn-primary" id="register-submit">Create Account</button>
+                <p class="form-footer">Already have an account? <a href="#" id="show-login">Sign in</a></p>
             </form>
         </div>
     </div>
 
     <!-- Main Screen -->
-    <div id="main-screen" class="screen hidden">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-left">
-                <span class="header-logo">Cognitia</span>
-                <span class="header-version">v3.0</span>
-            </div>
-            <div class="header-center">
-                <span id="connection-status" class="status-disconnected">● OFFLINE</span>
-            </div>
-            <div class="header-right">
-                <button id="logout-btn" class="btn btn-small">LOGOUT</button>
-            </div>
-        </header>
-
-        <!-- Main Content -->
-        <div class="main-content">
-            <!-- Sidebar - Chat List -->
-            <aside class="sidebar">
-                <div class="sidebar-header">
-                    <h2>CHATS</h2>
-                    <button id="new-chat-btn" class="btn btn-icon" title="New Chat">+</button>
+    <div id="main-screen" class="main-screen hidden">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <div class="user-info">
+                    <div class="user-avatar" id="user-avatar">
+                        <span id="user-initial">U</span>
+                        <img id="user-avatar-img" src="" alt="" class="hidden">
+                    </div>
+                    <span class="user-name" id="user-name">User</span>
                 </div>
-                <div id="chat-list" class="chat-list">
-                    <!-- Chats populated by JS -->
+                <div class="sidebar-actions">
+                    <button class="btn-icon" id="new-chat-btn" title="New Character">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                    <button class="btn-icon" id="settings-btn" title="Settings">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                        </svg>
+                    </button>
+                    <button class="btn-icon" id="logout-btn" title="Logout">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                    </button>
                 </div>
-            </aside>
-
-            <!-- Chat Area -->
-            <main class="chat-area">
-                <!-- Empty State -->
-                <div id="empty-state" class="empty-state">
-                    <p>Select a chat or create a new character</p>
-                    <p class="hint">Click + to create a new AI character</p>
+            </div>
+            
+            <div class="chat-list-header">
+                <div class="search-box">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <input type="text" id="search-input" placeholder="Search characters...">
                 </div>
+            </div>
+            
+            <div id="chat-list" class="chat-list">
+                <!-- Chats populated by JS -->
+            </div>
+        </aside>
 
-                <!-- Chat View -->
-                <div id="chat-view" class="chat-view hidden">
-                    <!-- Chat Header -->
-                    <div class="chat-header">
-                        <div class="chat-info">
-                            <span id="chat-title" class="chat-title">Chat</span>
-                            <span id="character-name" class="character-name">Character</span>
+        <!-- Chat Area -->
+        <main id="chat-area" class="chat-area">
+            <!-- Empty State -->
+            <div id="empty-state" class="empty-chat">
+                <div class="empty-chat-icon">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                </div>
+                <h2>Welcome to Cognitia</h2>
+                <p>Create a character to start chatting with voice and text messages.</p>
+            </div>
+
+            <!-- Chat View -->
+            <div id="chat-view" class="hidden" style="display: flex; flex-direction: column; height: 100%;">
+                <!-- Chat Header -->
+                <div class="chat-header">
+                    <div class="chat-header-info">
+                        <button class="btn-icon mobile-back-btn" id="mobile-back-btn">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="15 18 9 12 15 6"></polyline>
+                            </svg>
+                        </button>
+                        <div class="chat-header-avatar" id="chat-header-avatar">
+                            <span id="chat-avatar-initial">C</span>
+                            <img id="chat-avatar-img" src="" alt="" class="hidden">
                         </div>
-                        <button id="edit-character-btn" class="btn btn-small">EDIT</button>
-                    </div>
-
-                    <!-- Messages -->
-                    <div id="messages-container" class="messages-container">
-                        <!-- Messages populated by JS -->
-                    </div>
-
-                    <!-- Recording Indicator -->
-                    <div id="recording-indicator" class="recording-indicator hidden">
-                        <span class="recording-dot"></span>
-                        <span>Recording...</span>
-                    </div>
-
-                    <!-- Input Area -->
-                    <div class="input-area">
-                        <div class="input-controls">
-                            <button id="record-btn" class="btn btn-icon" title="Hold to record voice message">🎤</button>
-                            <input type="text" id="message-input" placeholder="Type your message...">
-                            <button id="send-btn" class="btn btn-icon" title="Send message">➤</button>
-                            <button id="call-btn" class="btn btn-icon" title="Start voice call">📞</button>
+                        <div class="chat-header-details">
+                            <div class="chat-header-name" id="character-name">Character</div>
+                            <div class="chat-header-status" id="connection-status">Connecting...</div>
                         </div>
                     </div>
+                    <div class="chat-header-actions">
+                        <button class="btn-icon" id="call-btn" title="Voice Call">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                            </svg>
+                        </button>
+                        <button class="btn-icon" id="edit-character-btn" title="Edit Character">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
-            </main>
+
+                <!-- Messages Container -->
+                <div id="messages-container" class="chat-messages">
+                    <!-- Messages populated by JS -->
+                </div>
+
+                <!-- Recording Indicator -->
+                <div id="recording-indicator" class="recording-indicator hidden" style="padding: 12px 16px; background: var(--bg-secondary); display: flex; align-items: center; gap: 12px;">
+                    <div class="recording-dot"></div>
+                    <span class="recording-time" id="recording-time">0:00</span>
+                    <div class="recording-waveform">
+                        <div class="bar" style="animation-delay: 0s;"></div>
+                        <div class="bar" style="animation-delay: 0.1s;"></div>
+                        <div class="bar" style="animation-delay: 0.2s;"></div>
+                        <div class="bar" style="animation-delay: 0.3s;"></div>
+                        <div class="bar" style="animation-delay: 0.4s;"></div>
+                    </div>
+                </div>
+
+                <!-- Input Area -->
+                <div class="chat-input-area">
+                    <div class="chat-input-container">
+                        <div class="chat-input-wrapper">
+                            <input type="text" id="message-input" placeholder="Type a message...">
+                            <div class="input-actions">
+                                <button class="btn-icon" id="emoji-btn" title="Emoji">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"></circle>
+                                        <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                                        <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                                        <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <button class="btn-icon" id="record-btn" title="Hold to record">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                <line x1="12" y1="19" x2="12" y2="23"></line>
+                                <line x1="8" y1="23" x2="16" y2="23"></line>
+                            </svg>
+                        </button>
+                        <button class="send-btn" id="send-btn" title="Send message">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Audio Preview Modal -->
+    <div id="audio-preview-modal" class="modal-overlay audio-preview-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Preview Recording</h2>
+                <button class="modal-close" id="close-audio-preview">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="audio-preview-content">
+                    <div class="audio-preview-visual" id="preview-bars">
+                        <!-- Bars will be generated by JS -->
+                    </div>
+                    <span id="preview-time" class="audio-duration">0:00</span>
+                    <audio id="preview-audio" preload="metadata"></audio>
+                </div>
+                <div class="audio-preview-controls">
+                    <button id="preview-cancel-btn" class="preview-cancel-btn" title="Cancel">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                    <button id="preview-play-btn" class="preview-play-btn" title="Play/Pause">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                    </button>
+                    <button id="preview-rerecord-btn" class="preview-rerecord-btn" title="Re-record">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg>
+                    </button>
+                    <button id="preview-send-btn" class="preview-send-btn" title="Send">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
     <!-- Character Modal -->
-    <div id="character-modal" class="modal hidden">
-        <div class="modal-content">
+    <div id="character-modal" class="modal-overlay">
+        <div class="modal">
             <div class="modal-header">
-                <h2>CHARACTER</h2>
-                <button class="modal-close" id="close-modal">&times;</button>
+                <h2 id="modal-title">New Character</h2>
+                <button class="modal-close" id="close-modal">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
             </div>
-            <form id="character-form">
-                <input type="hidden" id="character-id">
-                <div class="form-group">
-                    <label for="character-name-input">&gt; NAME</label>
-                    <input type="text" id="character-name-input" required maxlength="100">
-                </div>
-                <div class="form-group">
-                    <label for="character-preprompt">&gt; SYSTEM PROMPT</label>
-                    <textarea id="character-preprompt" required rows="6" placeholder="Define the character's personality, background, and behavior..."></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="voice-model-select">&gt; BASE VOICE</label>
-                    <select id="voice-model-select">
-                        <option value="glados" selected>Cognitia</option>
-                        <option value="kokoro">Kokoro TTS</option>
-                        <optgroup label="Kokoro Voices">
-                            <option value="af_bella">Bella (af_bella)</option>
-                            <option value="af_alloy">Alloy (af_alloy)</option>
-                            <option value="af_nova">Nova (af_nova)</option>
-                            <option value="am_adam">Adam (am_adam)</option>
-                            <option value="am_echo">Echo (am_echo)</option>
-                        </optgroup>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>&gt; CUSTOM VOICE (RVC)</label>
-                    <div class="file-inputs">
-                        <input type="file" id="pth-file" accept=".pth">
-                        <label for="pth-file" class="file-label">.pth model</label>
-                        <input type="file" id="index-file" accept=".index">
-                        <label for="index-file" class="file-label">.index (optional)</label>
+            <div class="modal-body">
+                <form id="character-form" class="character-form">
+                    <input type="hidden" id="character-id">
+                    
+                    <!-- Avatar Upload -->
+                    <div class="form-group">
+                        <label>Avatar</label>
+                        <div class="avatar-upload">
+                            <div class="avatar-preview" id="avatar-preview">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                    <circle cx="12" cy="7" r="4"></circle>
+                                </svg>
+                                <img id="avatar-preview-img" src="" alt="" class="hidden">
+                            </div>
+                            <div class="avatar-upload-btn">
+                                <label for="avatar-file" class="btn btn-secondary">Choose Image</label>
+                                <input type="file" id="avatar-file" accept="image/*">
+                                <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">JPG, PNG, or GIF. Max 2MB.</p>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div class="form-actions">
-                    <button type="button" class="btn btn-primary" id="save-character">SAVE</button>
-                    <button type="button" class="btn btn-danger hidden" id="delete-character">DELETE</button>
-                </div>
-            </form>
+                    
+                    <div class="form-group">
+                        <label for="character-name-input">Name</label>
+                        <input type="text" id="character-name-input" required maxlength="100" placeholder="Character name">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="character-preprompt">System Prompt</label>
+                        <textarea id="character-preprompt" required rows="3" placeholder="Short behavior rules and constraints (e.g., 'Keep responses under 200 words. Use asterisks for actions.')"></textarea>
+                        <p class="form-hint">Brief rules that guide the AI's behavior. Keep this concise.</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="character-persona">Character Persona <span class="optional">(optional)</span></label>
+                        <textarea id="character-persona" rows="6" placeholder="Detailed character biography, personality traits, background story, likes/dislikes, speech patterns..."></textarea>
+                        <p class="form-hint">Rich character details for roleplay. This goes in a separate prompt block for better LLM performance.</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="voice-model-select">Voice</label>
+                        <select id="voice-model-select">
+                            <option value="glados" selected>Cognitia (Default)</option>
+                            <option value="kokoro">Kokoro TTS</option>
+                            <optgroup label="Kokoro Voices">
+                                <option value="af_bella">Bella</option>
+                                <option value="af_alloy">Alloy</option>
+                                <option value="af_nova">Nova</option>
+                                <option value="am_adam">Adam</option>
+                                <option value="am_echo">Echo</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Custom Voice (RVC)</label>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 140px;">
+                                <input type="file" id="pth-file" accept=".pth" class="hidden">
+                                <label for="pth-file" class="btn btn-secondary" style="width: 100%; display: block; text-align: center;">.pth Model</label>
+                            </div>
+                            <div style="flex: 1; min-width: 140px;">
+                                <input type="file" id="index-file" accept=".index" class="hidden">
+                                <label for="index-file" class="btn btn-secondary" style="width: 100%; display: block; text-align: center;">.index (Optional)</label>
+                            </div>
+                        </div>
+                        <div id="upload-progress-container" class="hidden" style="margin-top: 12px;">
+                            <div style="height: 4px; background: var(--border-color); border-radius: 2px; overflow: hidden;">
+                                <div id="upload-progress-fill" style="height: 100%; background: var(--accent); width: 0%; transition: width 0.3s;"></div>
+                            </div>
+                            <span id="upload-progress-text" style="font-size: 12px; color: var(--text-muted);">0%</span>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger hidden" id="delete-character">Delete</button>
+                <button type="button" class="btn btn-primary" id="save-character">Save Character</button>
+            </div>
         </div>
     </div>
 
     <!-- Call Overlay -->
-    <div id="call-overlay" class="overlay hidden">
-        <div class="call-container">
-            <div class="call-avatar">📞</div>
-            <div id="call-character-name" class="call-name">Character</div>
-            <div class="call-status">In Call</div>
-            <div class="volume-meter">
-                <div id="volume-level" class="volume-level"></div>
-            </div>
-            <button id="end-call-btn" class="btn btn-danger">END CALL</button>
+    <div id="call-overlay" class="call-overlay">
+        <div class="call-avatar" id="call-avatar">
+            <span id="call-avatar-initial">C</span>
+            <img id="call-avatar-img" src="" alt="" class="hidden">
+        </div>
+        <div class="call-name" id="call-character-name">Character</div>
+        <div class="call-status" id="call-status">Connecting...</div>
+        <div class="call-timer hidden" id="call-timer">00:00</div>
+        <div class="call-actions">
+            <button class="call-btn mute" id="mute-btn" title="Mute">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+            </button>
+            <button class="call-btn end" id="end-call-btn" title="End Call">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                    <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+            </button>
+            <button class="call-btn speaker" id="speaker-btn" title="Speaker">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                </svg>
+            </button>
         </div>
     </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button class="modal-close" id="close-settings">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Profile Section -->
+                <div class="form-section">
+                    <h3 class="form-section-title">Profile</h3>
+                    <div class="avatar-upload-section">
+                        <div class="settings-avatar" id="settings-user-avatar">
+                            <span id="settings-user-initial">U</span>
+                            <img id="settings-user-avatar-img" src="" alt="" class="hidden">
+                        </div>
+                        <div class="avatar-upload-controls">
+                            <input type="file" id="user-avatar-input" accept="image/jpeg,image/png,image/gif,image/webp" class="hidden">
+                            <button type="button" class="btn btn-secondary" id="change-user-avatar-btn">Change Avatar</button>
+                            <p class="form-hint">JPG, PNG, GIF or WebP. Max 2MB.</p>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" id="settings-email" disabled>
+                    </div>
+                </div>
+
+                <!-- System Status Section -->
+                <div class="form-section">
+                    <h3 class="form-section-title">System Status</h3>
+                    <div class="status-grid">
+                        <div class="status-item">
+                            <span class="status-label">AI Core</span>
+                            <span class="status-value" id="core-status">Checking...</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Version</span>
+                            <span class="status-value" id="core-version">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Theme Section -->
+                <div class="form-section">
+                    <h3 class="form-section-title">Appearance</h3>
+                    <div class="form-group">
+                        <label class="form-label">Theme</label>
+                        <select class="form-select" id="theme-select">
+                            <option value="light">Light</option>
+                            <option value="dark">Dark</option>
+                            <option value="system">System</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="close-settings-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
 
     <!-- Scripts -->
     <script type="module" src="js/app.js"></script>

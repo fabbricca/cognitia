@@ -1,7 +1,14 @@
 # Cognitia Entrance Server Dockerfile
+# Lightweight API server for authentication, CRUD, and WebSocket proxy
 FROM python:3.12-slim
 
 WORKDIR /app
+
+# Create non-root user for security
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g ${GID} cognitia && \
+    useradd -u ${UID} -g cognitia -m -s /bin/bash cognitia
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -30,19 +37,22 @@ RUN pip install --no-cache-dir \
     httpx
 
 # Copy source code - only entrance module needed
-# Create minimal __init__.py (Entrance doesn't need core imports)
 RUN mkdir -p ./cognitia && echo '"""Cognitia Entrance."""\n__version__ = "0.1.0"' > ./cognitia/__init__.py
 COPY src/cognitia/entrance ./cognitia/entrance
 
 # Copy web frontend
 COPY web ./web
 
-# Create data directory
-RUN mkdir -p /app/data
+# Create data and avatars directories with correct permissions
+RUN mkdir -p /app/data /app/web/avatars && \
+    chown -R cognitia:cognitia /app/data /app/web/avatars
 
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
+
+# Switch to non-root user
+USER cognitia
 
 # Expose port
 EXPOSE 8000

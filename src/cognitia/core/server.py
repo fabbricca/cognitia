@@ -10,11 +10,13 @@ All requests are trusted (no authentication at this layer).
 import asyncio
 import json
 import os
+import shutil
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from pydantic import BaseModel
@@ -39,6 +41,7 @@ class MessageRequest(BaseModel):
     message: str  # Text or base64 audio
     communication_type: str = "text"  # "text", "audio", "phone"
     system_prompt: str = "You are a helpful AI assistant."
+    persona_prompt: Optional[str] = None  # Detailed character biography/lorebook
     conversation_history: list[dict] = []
     user_persona: Optional[str] = None
     model_name: str = "Assistant"
@@ -87,6 +90,18 @@ class SynthesizeResponse(BaseModel):
     """Speech synthesis response."""
     audio: str  # Base64-encoded audio
     sample_rate: int
+
+
+class RvcModelUploadResponse(BaseModel):
+    """Response from RVC model upload."""
+    model_name: str
+    pth_path: str
+    index_path: Optional[str] = None
+    message: str
+
+
+# RVC models directory (from environment or default)
+RVC_MODELS_DIR = Path(os.environ.get("RVC_MODELS_DIR", "/home/iberu/Documents/cognitia/rvc_models"))
 
 
 # -------------------------------------------------------------------------
@@ -164,6 +179,7 @@ async def process_message(request: MessageRequest) -> MessageResponse:
             message=request.message,
             communication_type=CommunicationType(request.communication_type),
             system_prompt=request.system_prompt,
+            persona_prompt=request.persona_prompt,
             conversation_history=request.conversation_history,
             user_persona=request.user_persona,
             model_name=request.model_name,
@@ -241,6 +257,120 @@ async def synthesize_speech(request: SynthesizeRequest) -> SynthesizeResponse:
     except Exception as e:
         logger.exception(f"Synthesis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/upload-rvc-model", response_model=RvcModelUploadResponse, tags=["rvc"])
+async def upload_rvc_model(
+    model_name: str = Form(...),
+    pth_file: UploadFile = File(...),
+    index_file: Optional[UploadFile] = File(None),
+) -> RvcModelUploadResponse:
+    """
+    Upload an RVC voice model (.pth and optional .index file).
+    
+    Files are saved to the RVC models directory in the format expected by the RVC service:
+    - rvc_models/{model_name}/{model_name}.pth
+    - rvc_models/{model_name}/{index_file_name}.index (if provided)
+    
+    Args:
+        model_name: Name for the RVC model (used as directory name)
+        pth_file: The .pth model file
+        index_file: Optional .index file for better quality
+    
+    Returns:
+        Information about the uploaded model
+    """
+    # Validate file extensions
+    if not pth_file.filename.endswith('.pth'):
+        raise HTTPException(status_code=400, detail="pth_file must have .pth extension")
+    
+    if index_file and not index_file.filename.endswith('.index'):
+        raise HTTPException(status_code=400, detail="index_file must have .index extension")
+    
+    # Sanitize model name (remove path separators and special chars)
+    safe_model_name = "".join(c for c in model_name if c.isalnum() or c in ('_', '-')).strip()
+    if not safe_model_name:
+        raise HTTPException(status_code=400, detail="Invalid model name")
+    
+    try:
+        # Create model directory
+        model_dir = RVC_MODELS_DIR / safe_model_name
+        model_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save .pth file
+        pth_path = model_dir / f"{safe_model_name}.pth"
+        with open(pth_path, "wb") as f:
+            content = await pth_file.read()
+            f.write(content)
+        logger.info(f"Saved RVC model: {pth_path}")
+        
+        # Save .index file if provided
+        index_path = None
+        if index_file:
+            # Keep original index filename (RVC needs it)
+            index_path = model_dir / index_file.filename
+            with open(index_path, "wb") as f:
+                content = await index_file.read()
+                f.write(content)
+            logger.info(f"Saved RVC index: {index_path}")
+        
+        return RvcModelUploadResponse(
+            model_name=safe_model_name,
+            pth_path=str(pth_path),
+            index_path=str(index_path) if index_path else None,
+            message=f"Successfully uploaded RVC model '{safe_model_name}'"
+        )
+        
+    except Exception as e:
+        logger.exception(f"Failed to upload RVC model: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload model: {str(e)}")
+
+
+@app.get("/rvc-models", tags=["rvc"])
+async def list_rvc_models() -> list[dict]:
+    """
+    List all available RVC models.
+    
+    Returns:
+        List of model info dictionaries
+    """
+    models = []
+    if RVC_MODELS_DIR.exists():
+        for model_dir in RVC_MODELS_DIR.iterdir():
+            if model_dir.is_dir():
+                pth_files = list(model_dir.glob("*.pth"))
+                index_files = list(model_dir.glob("*.index"))
+                if pth_files:
+                    models.append({
+                        "name": model_dir.name,
+                        "pth_file": pth_files[0].name if pth_files else None,
+                        "index_file": index_files[0].name if index_files else None,
+                    })
+    return models
+
+
+@app.delete("/rvc-models/{model_name}", tags=["rvc"])
+async def delete_rvc_model(model_name: str) -> dict:
+    """
+    Delete an RVC model.
+    
+    Args:
+        model_name: Name of the model to delete
+    
+    Returns:
+        Confirmation message
+    """
+    model_dir = RVC_MODELS_DIR / model_name
+    if not model_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
+    
+    try:
+        shutil.rmtree(model_dir)
+        logger.info(f"Deleted RVC model: {model_name}")
+        return {"message": f"Successfully deleted RVC model '{model_name}'"}
+    except Exception as e:
+        logger.exception(f"Failed to delete RVC model: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete model: {str(e)}")
 
 
 # -------------------------------------------------------------------------
@@ -341,8 +471,10 @@ async def _process_with_sentence_streaming(
     async for sentence in orchestrator.stream_sentences(
         messages,
         context.enriched_system_prompt,
-        request.temperature,
-        request.max_tokens,
+        persona_prompt=context.model.persona_prompt,
+        communication_type=request.communication_type,
+        temperature=request.temperature,
+        max_tokens=request.max_tokens,
     ):
         full_response += sentence + " "
         
@@ -438,6 +570,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         message=data.get("message", ""),
                         communication_type=CommunicationType(data.get("communication_type", "text")),
                         system_prompt=data.get("system_prompt", "You are a helpful AI assistant."),
+                        persona_prompt=data.get("persona_prompt"),
                         conversation_history=data.get("conversation_history", []),
                         user_persona=data.get("user_persona"),
                         model_name=data.get("model_name", "Assistant"),

@@ -141,6 +141,53 @@ export class ApiClient {
         return this.request('GET', '/api/auth/me');
     }
 
+    /**
+     * Upload avatar for the current user.
+     * @param {File} avatarFile - The avatar image file
+     * @returns {Promise<object>} - Updated user data
+     */
+    async uploadUserAvatar(avatarFile) {
+        return new Promise((resolve, reject) => {
+            const formData = new FormData();
+            formData.append('avatar_file', avatarFile);
+
+            const xhr = new XMLHttpRequest();
+
+            xhr.addEventListener('load', () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try {
+                        resolve(JSON.parse(xhr.responseText));
+                    } catch (e) {
+                        resolve(xhr.responseText);
+                    }
+                } else {
+                    let errorDetail = 'Upload failed';
+                    try {
+                        const errData = JSON.parse(xhr.responseText);
+                        errorDetail = errData.detail || errData.message || errorDetail;
+                    } catch (e) {
+                        errorDetail = xhr.responseText || errorDetail;
+                    }
+                    const error = new Error(errorDetail);
+                    error.status = xhr.status;
+                    reject(error);
+                }
+            });
+
+            xhr.addEventListener('error', () => {
+                reject(new Error('Network error during upload'));
+            });
+
+            xhr.open('POST', `${this.baseUrl}/api/auth/me/avatar`);
+            
+            if (this.token) {
+                xhr.setRequestHeader('Authorization', `Bearer ${this.token}`);
+            }
+            
+            xhr.send(formData);
+        });
+    }
+
     // Character endpoints
     async getCharacters() {
         return this.request('GET', '/api/characters/');
@@ -150,18 +197,16 @@ export class ApiClient {
         return this.request('GET', `/api/characters/${id}`);
     }
 
-    async createCharacter(name, systemPrompt, voiceModel = 'glados', pthFile = null, indexFile = null) {
-        if (pthFile || indexFile) {
-            const formData = {
-                name,
-                system_prompt: systemPrompt,
-                voice_model: voiceModel
-            };
-            if (pthFile) formData.pth_file = pthFile;
-            if (indexFile) formData.index_file = indexFile;
-            return this.request('POST', '/api/characters/', formData, true);
+    async createCharacter(name, systemPrompt, personaPrompt = null, voiceModel = 'glados') {
+        const data = { 
+            name, 
+            system_prompt: systemPrompt, 
+            voice_model: voiceModel 
+        };
+        if (personaPrompt) {
+            data.persona_prompt = personaPrompt;
         }
-        return this.request('POST', '/api/characters/', { name, system_prompt: systemPrompt, voice_model: voiceModel });
+        return this.request('POST', '/api/characters/', data);
     }
 
     async updateCharacter(id, data) {
@@ -172,10 +217,120 @@ export class ApiClient {
         return this.request('DELETE', `/api/characters/${id}`);
     }
 
-    async uploadVoiceModel(characterId, pthFile, indexFile = null) {
-        const data = { pth_file: pthFile };
-        if (indexFile) data.index_file = indexFile;
-        return this.request('POST', `/api/characters/${id}/voice-model`, data, true);
+    /**
+     * Upload avatar for a character.
+     * @param {string} characterId - The character ID
+     * @param {File} avatarFile - The avatar image file
+     * @returns {Promise<object>} - Updated character data
+     */
+    async uploadCharacterAvatar(characterId, avatarFile) {
+        return new Promise((resolve, reject) => {
+            const formData = new FormData();
+            formData.append('avatar_file', avatarFile);
+
+            const xhr = new XMLHttpRequest();
+
+            xhr.addEventListener('load', () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try {
+                        resolve(JSON.parse(xhr.responseText));
+                    } catch (e) {
+                        resolve(xhr.responseText);
+                    }
+                } else {
+                    let errorDetail = 'Upload failed';
+                    try {
+                        const errData = JSON.parse(xhr.responseText);
+                        errorDetail = errData.detail || errData.message || errorDetail;
+                    } catch (e) {
+                        errorDetail = xhr.responseText || errorDetail;
+                    }
+                    const error = new Error(errorDetail);
+                    error.status = xhr.status;
+                    reject(error);
+                }
+            });
+
+            xhr.addEventListener('error', () => {
+                reject(new Error('Network error during upload'));
+            });
+
+            xhr.open('POST', `${this.baseUrl}/api/characters/${characterId}/avatar`);
+            
+            if (this.token) {
+                xhr.setRequestHeader('Authorization', `Bearer ${this.token}`);
+            }
+            
+            xhr.send(formData);
+        });
+    }
+
+    /**
+     * Upload RVC voice model for a character with progress tracking.
+     * @param {string} characterId - The character ID
+     * @param {File} pthFile - The .pth model file
+     * @param {File|null} indexFile - Optional .index file
+     * @param {function|null} onProgress - Progress callback (0-100)
+     * @returns {Promise<object>} - Updated character data
+     */
+    uploadVoiceModel(characterId, pthFile, indexFile = null, onProgress = null) {
+        return new Promise((resolve, reject) => {
+            const formData = new FormData();
+            formData.append('pth_file', pthFile);
+            if (indexFile) {
+                formData.append('index_file', indexFile);
+            }
+
+            const xhr = new XMLHttpRequest();
+            
+            // Track upload progress
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable && onProgress) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    onProgress(percent);
+                }
+            });
+
+            xhr.addEventListener('load', () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try {
+                        resolve(JSON.parse(xhr.responseText));
+                    } catch (e) {
+                        resolve(xhr.responseText);
+                    }
+                } else {
+                    let errorDetail = 'Upload failed';
+                    try {
+                        const errData = JSON.parse(xhr.responseText);
+                        errorDetail = errData.detail || errData.message || errorDetail;
+                    } catch (e) {
+                        errorDetail = xhr.responseText || errorDetail;
+                    }
+                    const error = new Error(errorDetail);
+                    error.status = xhr.status;
+                    reject(error);
+                }
+            });
+
+            xhr.addEventListener('error', () => {
+                reject(new Error('Network error during upload'));
+            });
+
+            xhr.addEventListener('timeout', () => {
+                reject(new Error('Upload timed out'));
+            });
+
+            xhr.open('POST', `${this.baseUrl}/api/characters/${characterId}/voice-model`);
+            
+            if (this.token) {
+                xhr.setRequestHeader('Authorization', `Bearer ${this.token}`);
+            }
+            
+            // Extended timeout for large files (5 minutes)
+            xhr.timeout = 300000;
+            
+            xhr.send(formData);
+        });
     }
 
     // Chat endpoints
@@ -203,12 +358,63 @@ export class ApiClient {
         return this.request('GET', `/api/chats/${chatId}/messages?limit=${limit}&offset=${offset}`);
     }
 
+    /**
+     * Get messages with cursor-based pagination (v2 API).
+     * @param {string} chatId - The chat ID
+     * @param {number} limit - Number of messages to fetch (1-100)
+     * @param {string|null} cursor - Cursor for pagination
+     * @param {string} direction - 'older' or 'newer'
+     * @returns {Promise<object>} - Paginated messages with cursors
+     */
+    async getChatMessagesV2(chatId, limit = 50, cursor = null, direction = 'older') {
+        let url = `/api/v2/chats/${chatId}/messages?limit=${limit}&direction=${direction}`;
+        if (cursor) {
+            url += `&cursor=${encodeURIComponent(cursor)}`;
+        }
+        return this.request('GET', url);
+    }
+
     async createMessage(chatId, content, role = 'user', audioUrl = null) {
         return this.request('POST', `/api/chats/${chatId}/messages`, {
             content,
             role,
             audio_url: audioUrl
         });
+    }
+
+    // Model/Voice endpoints
+    
+    /**
+     * Get available TTS voice models.
+     * @returns {Promise<object>} - List of voice models
+     */
+    async getVoiceModels() {
+        return this.request('GET', '/api/models/voices');
+    }
+
+    /**
+     * Get available RVC voice conversion models.
+     * @returns {Promise<object>} - List of RVC models
+     */
+    async getRVCModels() {
+        return this.request('GET', '/api/models/rvc');
+    }
+
+    /**
+     * Get Core GPU server status.
+     * @returns {Promise<object>} - Core server status
+     */
+    async getCoreStatus() {
+        return this.request('GET', '/api/core/status');
+    }
+
+    /**
+     * Request the Core server to reload a model.
+     * @param {string} modelType - Type of model (asr, tts, llm, rvc)
+     * @returns {Promise<object>} - Reload status
+     */
+    async reloadCoreModel(modelType) {
+        return this.request('POST', `/api/core/reload-model?model_type=${modelType}`);
     }
 }
 
