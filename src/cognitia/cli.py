@@ -172,6 +172,7 @@ def say(text: str, config_path: str | Path = "cognitia_config.yaml") -> None:
 def start(config_path: str | Path = "cognitia_config.yaml") -> None:
     """
     Start the Cognitia voice assistant and initialize its listening event loop.
+    (Legacy - for local audio I/O mode)
     """
     cognitia_config = CognitiaConfig.from_yaml(str(config_path))
     cognitia = Cognitia.from_config(cognitia_config)
@@ -180,15 +181,27 @@ def start(config_path: str | Path = "cognitia_config.yaml") -> None:
     cognitia.run()
 
 
-def orchestrator(host: str = "0.0.0.0", port: int = 8080) -> None:
+def core_server(host: str = "0.0.0.0", port: int = 8080) -> None:
     """
-    Start the Cognitia orchestrator server.
+    Start the Core server (GPU-side AI processing).
     
-    This runs the HTTP/WebSocket server that bridges the K8s entrance
-    to the core processing (ASR/LLM/TTS).
+    This runs the HTTP/WebSocket server that handles ASR/LLM/TTS processing.
     """
-    from .orchestrator import run_server
-    run_server(host=host, port=port)
+    import uvicorn
+    from .core.server import app
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+def entrance_server(host: str = "0.0.0.0", port: int = 8000) -> None:
+    """
+    Start the Entrance server (K8s-side auth/proxy).
+    
+    This runs the HTTP/WebSocket server that handles authentication,
+    CRUD operations, and proxies requests to the Core server.
+    """
+    import uvicorn
+    from .entrance.server import app
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 def main() -> int:
@@ -201,28 +214,43 @@ def main() -> int:
     # Download command
     subparsers.add_parser("download", help="Download model files")
 
-    # Start command
-    start_parser = subparsers.add_parser("start", help="Start Cognitia voice assistant")
-    start_parser.add_argument(
-        "--config",
-        type=str,
-        default=DEFAULT_CONFIG,
-        help=f"Path to configuration file (default: {DEFAULT_CONFIG})",
-    )
-
-    # Orchestrator command (for GPU server)
-    orch_parser = subparsers.add_parser("orchestrator", help="Start the orchestrator server")
-    orch_parser.add_argument(
+    # Core command (for GPU server)
+    core_parser = subparsers.add_parser("core", help="Start the Core server (GPU-side AI processing)")
+    core_parser.add_argument(
         "--host",
         type=str,
         default="0.0.0.0",
         help="Host to bind (default: 0.0.0.0)",
     )
-    orch_parser.add_argument(
+    core_parser.add_argument(
         "--port",
         type=int,
         default=8080,
         help="Port to listen on (default: 8080)",
+    )
+
+    # Entrance command (for K8s)
+    entrance_parser = subparsers.add_parser("entrance", help="Start the Entrance server (K8s-side auth/proxy)")
+    entrance_parser.add_argument(
+        "--host",
+        type=str,
+        default="0.0.0.0",
+        help="Host to bind (default: 0.0.0.0)",
+    )
+    entrance_parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to listen on (default: 8000)",
+    )
+
+    # Legacy start command (local audio I/O)
+    start_parser = subparsers.add_parser("start", help="Start Cognitia voice assistant (legacy local mode)")
+    start_parser.add_argument(
+        "--config",
+        type=str,
+        default=DEFAULT_CONFIG,
+        help=f"Path to configuration file (default: {DEFAULT_CONFIG})",
     )
 
     # Say command
@@ -239,20 +267,29 @@ def main() -> int:
 
     if args.command == "download":
         return asyncio.run(download_models())
-    elif args.command == "orchestrator":
-        orchestrator(host=args.host, port=args.port)
-        return 0
-    else:
+    elif args.command == "core":
         if not models_valid():
             print("Some model files are invalid or missing. Please run 'cognitia download'")
             return 1
-        if args.command == "say":
-            say(args.text, args.config)
-        elif args.command == "start":
-            start(args.config)
-        else:
-            # Default to start if no command specified
-            start(DEFAULT_CONFIG)
+        core_server(host=args.host, port=args.port)
+        return 0
+    elif args.command == "entrance":
+        entrance_server(host=args.host, port=args.port)
+        return 0
+    elif args.command == "say":
+        if not models_valid():
+            print("Some model files are invalid or missing. Please run 'cognitia download'")
+            return 1
+        say(args.text, args.config)
+        return 0
+    elif args.command == "start":
+        if not models_valid():
+            print("Some model files are invalid or missing. Please run 'cognitia download'")
+            return 1
+        start(args.config)
+        return 0
+    else:
+        parser.print_help()
         return 0
 
 

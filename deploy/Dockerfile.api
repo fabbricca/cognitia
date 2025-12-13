@@ -1,4 +1,4 @@
-# Cognitia API Server Dockerfile
+# Cognitia Entrance Server Dockerfile
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements first for better layer caching
 COPY pyproject.toml README.md ./
 
-# Install Python dependencies
+# Install Python dependencies for Entrance (no GPU/AI deps)
 RUN pip install --no-cache-dir \
     fastapi[standard] \
     uvicorn[standard] \
@@ -26,21 +26,19 @@ RUN pip install --no-cache-dir \
     python-multipart \
     aiofiles \
     loguru \
-    redis \
     websockets \
     httpx
 
-# Copy source code
-COPY src/cognitia/api ./cognitia/api
-
-# Create minimal __init__.py (API doesn't need core module imports)
-RUN echo '"""Cognitia API Package."""\n__version__ = "0.1.0"' > ./cognitia/__init__.py
+# Copy source code - only entrance module needed
+# Create minimal __init__.py (Entrance doesn't need core imports)
+RUN mkdir -p ./cognitia && echo '"""Cognitia Entrance."""\n__version__ = "0.1.0"' > ./cognitia/__init__.py
+COPY src/cognitia/entrance ./cognitia/entrance
 
 # Copy web frontend
 COPY web ./web
 
-# Create directories
-RUN mkdir -p /app/voice_models
+# Create data directory
+RUN mkdir -p /app/data
 
 # Set environment variables
 ENV PYTHONPATH=/app
@@ -53,5 +51,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the API server with WebSocket support
-CMD ["python", "-m", "uvicorn", "cognitia.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--ws", "websockets"]
+# Run the Entrance server
+CMD ["python", "-m", "uvicorn", "cognitia.entrance.server:app", "--host", "0.0.0.0", "--port", "8000"]
