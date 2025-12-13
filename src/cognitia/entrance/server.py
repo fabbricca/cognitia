@@ -710,14 +710,9 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                             await websocket.send_json({"type": "pong"})
                             continue
                         
-                        # Enrich message with context
-                        msg["user_id"] = user_id
-                        
-                        if msg_type in ("text", "audio"):
-                            # Get character info
+                        # Handle character_switch locally - do NOT forward to Core
+                        if msg_type == "character_switch":
                             char_id = msg.get("characterId")
-                            chat_id = msg.get("chatId")
-                            
                             if char_id:
                                 async with get_session() as session:
                                     result = await session.execute(
@@ -725,28 +720,53 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                                     )
                                     char = result.scalar_one_or_none()
                                     if char:
-                                        msg["system_prompt"] = char.system_prompt
-                                        msg["model_id"] = str(char.id)
-                                        msg["model_name"] = char.name
-                                        msg["voice"] = char.voice_model
-                                        msg["rvc_model_path"] = char.rvc_model_path
-                                        msg["rvc_enabled"] = char.rvc_model_path is not None
-                            
-                            # Get conversation history
-                            if chat_id:
-                                async with get_session() as session:
-                                    result = await session.execute(
-                                        select(Message)
-                                        .where(Message.chat_id == UUID(chat_id))
-                                        .order_by(Message.created_at.desc())
-                                        .limit(20)
-                                    )
-                                    messages = list(result.scalars().all())
-                                    messages.reverse()
-                                    msg["conversation_history"] = [
-                                        {"role": m.role, "content": m.content}
-                                        for m in messages
-                                    ]
+                                        await websocket.send_json({
+                                            "type": "info",
+                                            "message": f"Switched to {char.name}"
+                                        })
+                            continue  # Don't forward to Core
+                        
+                        # Only forward text/audio messages to Core
+                        if msg_type not in ("text", "audio", "phone"):
+                            logger.warning(f"Ignoring unknown message type: {msg_type}")
+                            continue
+                        
+                        # Enrich message with context
+                        msg["user_id"] = user_id
+                        
+                        # Get character info
+                        char_id = msg.get("characterId")
+                        chat_id = msg.get("chatId")
+                        
+                        if char_id:
+                            async with get_session() as session:
+                                result = await session.execute(
+                                    select(Character).where(Character.id == UUID(char_id))
+                                )
+                                char = result.scalar_one_or_none()
+                                if char:
+                                    msg["system_prompt"] = char.system_prompt
+                                    msg["model_id"] = str(char.id)
+                                    msg["model_name"] = char.name
+                                    msg["voice"] = char.voice_model
+                                    msg["rvc_model_path"] = char.rvc_model_path
+                                    msg["rvc_enabled"] = char.rvc_model_path is not None
+                        
+                        # Get conversation history
+                        if chat_id:
+                            async with get_session() as session:
+                                result = await session.execute(
+                                    select(Message)
+                                    .where(Message.chat_id == UUID(chat_id))
+                                    .order_by(Message.created_at.desc())
+                                    .limit(20)
+                                )
+                                messages = list(result.scalars().all())
+                                messages.reverse()
+                                msg["conversation_history"] = [
+                                    {"role": m.role, "content": m.content}
+                                    for m in messages
+                                ]
                         
                         # Map to Core format
                         core_msg = {

@@ -348,6 +348,46 @@ class Orchestrator:
     # LLM Processing
     # -------------------------------------------------------------------------
     
+    def _format_pygmalion_prompt(
+        self,
+        messages: list[dict],
+        system_prompt: str,
+    ) -> str:
+        """
+        Format conversation in Pygmalion/Metharme style.
+        
+        Uses special tokens: <|system|>, <|user|>, <|model|>
+        This bypasses Ollama's chat template and gives us full control.
+        
+        Args:
+            messages: Conversation messages with role/content
+            system_prompt: Character persona/system prompt
+            
+        Returns:
+            Formatted prompt string for raw completion
+        """
+        # Build the prompt with Pygmalion tokens
+        prompt_parts = []
+        
+        # System prompt with RP mode instruction
+        prompt_parts.append(f"<|system|>{system_prompt}")
+        
+        # Add conversation history
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            
+            if role == "user":
+                prompt_parts.append(f"<|user|>{content}")
+            elif role == "assistant":
+                prompt_parts.append(f"<|model|>{content}")
+            # Skip system messages in history - already handled above
+        
+        # Add the model token to prompt generation
+        prompt_parts.append("<|model|>")
+        
+        return "".join(prompt_parts)
+    
     async def stream_llm_response(
         self,
         messages: list[dict],
@@ -356,26 +396,33 @@ class Orchestrator:
         max_tokens: int = 2048,
     ) -> AsyncGenerator[str, None]:
         """
-        Stream response from Ollama.
+        Stream response from Ollama using Pygmalion/Metharme format.
+        
+        Uses /api/generate (raw completion) to bypass Ollama's chat template
+        and apply our own Pygmalion formatting with <|system|>, <|user|>, <|model|> tokens.
         
         Args:
             messages: Conversation messages
-            system_prompt: System prompt
+            system_prompt: System prompt (character persona)
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
             
         Yields:
             Text chunks as they're generated
         """
-        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        # Format prompt in Pygmalion style
+        prompt = self._format_pygmalion_prompt(messages, system_prompt)
         
+        # Use /api/generate for raw completion (bypasses Ollama's chat template)
         payload = {
             "model": self.ollama_model,
-            "messages": full_messages,
+            "prompt": prompt,
             "stream": True,
+            "raw": True,  # Disable Ollama's template processing
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                "stop": ["<|user|>", "<|system|>"],  # Stop at next turn
             }
         }
         
@@ -383,7 +430,7 @@ class Orchestrator:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream(
                     "POST",
-                    f"{self.ollama_url}/api/chat",
+                    f"{self.ollama_url}/api/generate",
                     json=payload,
                 ) as response:
                     response.raise_for_status()
@@ -391,7 +438,7 @@ class Orchestrator:
                         if line:
                             try:
                                 data = json.loads(line)
-                                content = data.get("message", {}).get("content", "")
+                                content = data.get("response", "")
                                 if content:
                                     yield content
                                 if data.get("done"):
