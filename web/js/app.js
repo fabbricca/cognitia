@@ -611,8 +611,72 @@ class CognitiaApp {
     handleAudioResponse(msg) {
         // Core sends 'content', but also support 'data' for backwards compatibility
         const audioData = msg.content || msg.data;
+        const sampleRate = msg.sample_rate || 24000;
+        
         if (audioData) {
-            this.audio.playAudio(audioData, msg.format || 'wav');
+            if (this.isInCall) {
+                // Phone call mode: auto-play audio in background
+                this.audio.playAudio(audioData, 'pcm');
+            } else {
+                // Chat mode: display audio as a message with custom player
+                // Convert PCM audio data to a playable blob URL
+                const audioUrl = this.pcmToWavDataUrl(audioData, sampleRate);
+                this.appendAudioMessage('assistant', audioUrl);
+                
+                // Save to database
+                if (this.currentChat) {
+                    api.createMessage(this.currentChat.id, audioUrl, 'assistant').catch(console.error);
+                }
+            }
+        }
+    }
+    
+    // Convert PCM base64 to WAV data URL for playback
+    pcmToWavDataUrl(base64Pcm, sampleRate = 24000) {
+        // Decode base64 PCM
+        const pcmBytes = atob(base64Pcm);
+        const pcmLength = pcmBytes.length;
+        
+        // WAV header is 44 bytes
+        const wavLength = 44 + pcmLength;
+        const buffer = new ArrayBuffer(wavLength);
+        const view = new DataView(buffer);
+        
+        // Write WAV header
+        // "RIFF" chunk descriptor
+        this.writeString(view, 0, 'RIFF');
+        view.setUint32(4, wavLength - 8, true); // File size - 8
+        this.writeString(view, 8, 'WAVE');
+        
+        // "fmt " sub-chunk
+        this.writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+        view.setUint16(20, 1, true); // AudioFormat (1 = PCM)
+        view.setUint16(22, 1, true); // NumChannels (1 = mono)
+        view.setUint32(24, sampleRate, true); // SampleRate
+        view.setUint32(28, sampleRate * 2, true); // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
+        view.setUint16(32, 2, true); // BlockAlign (NumChannels * BitsPerSample/8)
+        view.setUint16(34, 16, true); // BitsPerSample
+        
+        // "data" sub-chunk
+        this.writeString(view, 36, 'data');
+        view.setUint32(40, pcmLength, true); // Subchunk2Size
+        
+        // Write PCM data
+        const uint8Array = new Uint8Array(buffer);
+        for (let i = 0; i < pcmLength; i++) {
+            uint8Array[44 + i] = pcmBytes.charCodeAt(i);
+        }
+        
+        // Create blob and URL
+        const blob = new Blob([buffer], { type: 'audio/wav' });
+        return URL.createObjectURL(blob);
+    }
+    
+    // Helper to write string to DataView
+    writeString(view, offset, string) {
+        for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
         }
     }
 
