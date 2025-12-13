@@ -180,6 +180,17 @@ def start(config_path: str | Path = "cognitia_config.yaml") -> None:
     cognitia.run()
 
 
+def orchestrator(host: str = "0.0.0.0", port: int = 8080) -> None:
+    """
+    Start the Cognitia orchestrator server.
+    
+    This runs the HTTP/WebSocket server that bridges the K8s entrance
+    to the core processing (ASR/LLM/TTS).
+    """
+    from .orchestrator import run_server
+    run_server(host=host, port=port)
+
+
 def main() -> int:
     """
     Command-line interface (CLI) entry point for the Cognitia voice assistant.
@@ -199,6 +210,21 @@ def main() -> int:
         help=f"Path to configuration file (default: {DEFAULT_CONFIG})",
     )
 
+    # Orchestrator command (for GPU server)
+    orch_parser = subparsers.add_parser("orchestrator", help="Start the orchestrator server")
+    orch_parser.add_argument(
+        "--host",
+        type=str,
+        default="0.0.0.0",
+        help="Host to bind (default: 0.0.0.0)",
+    )
+    orch_parser.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="Port to listen on (default: 8080)",
+    )
+
     # Say command
     say_parser = subparsers.add_parser("say", help="Make Cognitia speak text")
     say_parser.add_argument("text", type=str, help="Text for Cognitia to speak")
@@ -213,6 +239,9 @@ def main() -> int:
 
     if args.command == "download":
         return asyncio.run(download_models())
+    elif args.command == "orchestrator":
+        orchestrator(host=args.host, port=args.port)
+        return 0
     else:
         if not models_valid():
             print("Some model files are invalid or missing. Please run 'cognitia download'")

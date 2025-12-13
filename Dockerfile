@@ -10,11 +10,11 @@ RUN pip install uv
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
-COPY models/ ./models/
 COPY src/ ./src/
+COPY web/ ./web/
 
-RUN uv sync --extra api --extra cpu --no-dev \
-  && uv run cognitia download
+# Install dependencies (API-only, no models needed)
+RUN uv sync --extra api --extra cpu --no-dev
 
-EXPOSE 5050
-CMD ["uv", "run", "litestar", "--app", "cognitia.api.app:app", "run", "--host", "0.0.0.0", "--port", "5050"]
+EXPOSE 8000
+CMD ["uv", "run", "uvicorn", "cognitia.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

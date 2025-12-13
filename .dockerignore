@@ -5,3 +5,10 @@ __pycache__
 *.pyc
 dist/
 tmp/
+models/
+rvc_models/
+rvc/
+data/
+*.onnx
+*.pth
+.git/
