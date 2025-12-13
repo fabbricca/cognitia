@@ -424,13 +424,72 @@ class Orchestrator:
     # TTS Processing
     # -------------------------------------------------------------------------
     
+    def _split_text_for_tts(self, text: str, max_chars: int = 300) -> list[str]:
+        """
+        Split text into chunks suitable for TTS (under phoneme limit).
+        
+        Splits by sentences first, then by max_chars if needed.
+        
+        Args:
+            text: Text to split
+            max_chars: Maximum characters per chunk (conservative for phoneme limit)
+            
+        Returns:
+            List of text chunks
+        """
+        import re
+        
+        # First, split by sentence boundaries
+        sentence_pattern = r'(?<=[.!?])\s+'
+        sentences = re.split(sentence_pattern, text)
+        
+        chunks = []
+        current_chunk = ""
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            
+            # If sentence itself is too long, split by commas or just by length
+            if len(sentence) > max_chars:
+                # Try splitting by commas
+                parts = re.split(r',\s*', sentence)
+                for part in parts:
+                    part = part.strip()
+                    if not part:
+                        continue
+                    if len(part) > max_chars:
+                        # Force split by length
+                        for i in range(0, len(part), max_chars):
+                            sub_part = part[i:i+max_chars].strip()
+                            if sub_part:
+                                chunks.append(sub_part)
+                    elif len(current_chunk) + len(part) + 2 <= max_chars:
+                        current_chunk = f"{current_chunk}, {part}" if current_chunk else part
+                    else:
+                        if current_chunk:
+                            chunks.append(current_chunk)
+                        current_chunk = part
+            elif len(current_chunk) + len(sentence) + 1 <= max_chars:
+                current_chunk = f"{current_chunk} {sentence}" if current_chunk else sentence
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk)
+                current_chunk = sentence
+        
+        if current_chunk:
+            chunks.append(current_chunk)
+        
+        return chunks if chunks else [text[:max_chars]]
+    
     def synthesize_speech(
         self,
         text: str,
         voice: str,
     ) -> tuple[bytes, int]:
         """
-        Convert text to speech.
+        Convert text to speech. Handles long text by splitting into chunks.
         
         Args:
             text: Text to synthesize
@@ -444,11 +503,38 @@ class Orchestrator:
         # Convert text to spoken format (e.g., "12" -> "twelve")
         spoken_text = self._stc.text_to_spoken(text)
         
-        # Generate audio
-        audio_float = tts.generate_speech_audio(spoken_text)
+        # Split into chunks if text is long
+        chunks = self._split_text_for_tts(spoken_text)
+        
+        all_audio = []
+        for chunk in chunks:
+            if not chunk.strip():
+                continue
+            try:
+                audio_float = tts.generate_speech_audio(chunk)
+                all_audio.append(audio_float)
+            except ValueError as e:
+                # If still too long, try smaller chunks
+                logger.warning(f"TTS chunk too long, splitting further: {e}")
+                sub_chunks = self._split_text_for_tts(chunk, max_chars=150)
+                for sub_chunk in sub_chunks:
+                    if sub_chunk.strip():
+                        try:
+                            audio_float = tts.generate_speech_audio(sub_chunk)
+                            all_audio.append(audio_float)
+                        except ValueError as e2:
+                            logger.error(f"TTS failed for sub-chunk: {e2}")
+        
+        if not all_audio:
+            # Return silence if nothing could be synthesized
+            logger.error("No audio generated, returning silence")
+            return np.zeros(tts.sample_rate, dtype=np.int16).tobytes(), tts.sample_rate
+        
+        # Concatenate all audio chunks
+        combined_audio = np.concatenate(all_audio)
         
         # Convert to int16 bytes
-        audio_int16 = (audio_float * 32767).clip(-32768, 32767).astype(np.int16)
+        audio_int16 = (combined_audio * 32767).clip(-32768, 32767).astype(np.int16)
         audio_bytes = audio_int16.tobytes()
         
         return audio_bytes, tts.sample_rate

@@ -251,11 +251,22 @@ async def get_me(
     return UserResponse.model_validate(user)
 
 
+@app.post("/api/auth/logout", tags=["auth"])
+async def logout(
+    user_id: UUID = Depends(get_user_id),
+):
+    """Logout current user (invalidate token client-side)."""
+    # JWT tokens are stateless - client should discard the token
+    # In a production system, you might want to blacklist the token
+    return {"message": "Successfully logged out"}
+
+
 # =============================================================================
 # Character Routes
 # =============================================================================
 
 @app.get("/api/characters", response_model=CharacterListResponse, tags=["characters"])
+@app.get("/api/characters/", response_model=CharacterListResponse, tags=["characters"], include_in_schema=False)
 async def list_characters(
     user_id: UUID = Depends(get_user_id),
     session: AsyncSession = Depends(get_session_dep),
@@ -274,6 +285,7 @@ async def list_characters(
 
 
 @app.post("/api/characters", response_model=CharacterResponse, tags=["characters"])
+@app.post("/api/characters/", response_model=CharacterResponse, tags=["characters"], include_in_schema=False)
 async def create_character(
     data: CharacterCreate,
     user_id: UUID = Depends(get_user_id),
@@ -374,6 +386,7 @@ async def delete_character(
 # =============================================================================
 
 @app.get("/api/chats", response_model=ChatListResponse, tags=["chats"])
+@app.get("/api/chats/", response_model=ChatListResponse, tags=["chats"], include_in_schema=False)
 async def list_chats(
     character_id: Optional[UUID] = None,
     user_id: UUID = Depends(get_user_id),
@@ -399,6 +412,7 @@ async def list_chats(
 
 
 @app.post("/api/chats", response_model=ChatResponse, tags=["chats"])
+@app.post("/api/chats/", response_model=ChatResponse, tags=["chats"], include_in_schema=False)
 async def create_chat(
     data: ChatCreate,
     user_id: UUID = Depends(get_user_id),

@@ -512,13 +512,13 @@ class CognitiaApp {
 
     handleTextChunk(msg) {
         if (this.currentStreamingElement) {
-            this.currentStreamingText += msg.chunk;
+            this.currentStreamingText += msg.content;
             this.updateStreamingMessage(this.currentStreamingElement, this.currentStreamingText);
         }
     }
 
     handleTextComplete(msg) {
-        const fullText = msg.full_text || this.currentStreamingText;
+        const fullText = msg.content || this.currentStreamingText;
         
         if (this.currentStreamingElement) {
             this.updateStreamingMessage(this.currentStreamingElement, fullText);

@@ -319,32 +319,52 @@ async def websocket_endpoint(websocket: WebSocket):
                         max_tokens=data.get("max_tokens", 2048),
                     )
                     
-                    # Process with streaming
-                    async def on_chunk(chunk: str):
-                        await websocket.send_json({
-                            "type": "text_chunk",
-                            "content": chunk,
-                        })
-                    
-                    async def on_complete(full_text: str):
+                    # Decide streaming behavior based on communication type
+                    if request.communication_type == CommunicationType.PHONE:
+                        # Phone mode: Stream sentence-by-sentence with TTS
+                        async def on_chunk(chunk: str):
+                            await websocket.send_json({
+                                "type": "text_chunk",
+                                "content": chunk,
+                            })
+                        
+                        async def on_complete(full_text: str):
+                            await websocket.send_json({
+                                "type": "text_complete",
+                                "content": full_text,
+                            })
+                        
+                        response = await orchestrator.process_streaming(
+                            request,
+                            on_text_chunk=on_chunk,
+                            on_complete=on_complete,
+                        )
+                        
+                        # Send audio if generated
+                        if response.type == "audio":
+                            await websocket.send_json({
+                                "type": "audio",
+                                "content": response.content,
+                                "sample_rate": response.sample_rate,
+                            })
+                    else:
+                        # Chat mode (TEXT/AUDIO): Don't stream, wait for full response
+                        # Then send text_complete + audio if long
+                        response = await orchestrator.process(request)
+                        
+                        # Always send the text complete first
                         await websocket.send_json({
                             "type": "text_complete",
-                            "content": full_text,
+                            "content": response.text_content,
                         })
-                    
-                    response = await orchestrator.process_streaming(
-                        request,
-                        on_text_chunk=on_chunk,
-                        on_complete=on_complete,
-                    )
-                    
-                    # Send audio if generated
-                    if response.type == "audio":
-                        await websocket.send_json({
-                            "type": "audio",
-                            "content": response.content,
-                            "sample_rate": response.sample_rate,
-                        })
+                        
+                        # Send audio if generated (long response)
+                        if response.type == "audio":
+                            await websocket.send_json({
+                                "type": "audio",
+                                "content": response.content,
+                                "sample_rate": response.sample_rate,
+                            })
                     
                 except Exception as e:
                     logger.exception(f"WebSocket processing error: {e}")
