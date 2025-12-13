@@ -631,20 +631,36 @@ class CognitiaApp {
                 this.audio.playAudio(audioData, 'pcm');
             } else {
                 // Chat mode: display audio as a message with custom player
-                // Convert PCM audio data to a playable blob URL
-                const audioUrl = this.pcmToWavDataUrl(audioData, sampleRate);
+                // Convert PCM audio data to a WAV data URI (persists across reloads)
+                const wavDataUri = this.pcmToWavDataUri(audioData, sampleRate);
+                
+                // Create a blob URL for playback (temporary, for this session)
+                const audioUrl = this.dataUriToObjectUrl(wavDataUri);
                 this.appendAudioMessage('assistant', audioUrl);
                 
-                // Save to database
+                // Save the data URI to database (persists across reloads)
                 if (this.currentChat) {
-                    api.createMessage(this.currentChat.id, audioUrl, 'assistant').catch(console.error);
+                    api.createMessage(this.currentChat.id, wavDataUri, 'assistant').catch(console.error);
                 }
             }
         }
     }
     
-    // Convert PCM base64 to WAV data URL for playback
-    pcmToWavDataUrl(base64Pcm, sampleRate = 24000) {
+    // Convert data URI to object URL for playback
+    dataUriToObjectUrl(dataUri) {
+        const [header, base64] = dataUri.split(',');
+        const mimeType = header.match(/:(.*?);/)[1];
+        const bytes = atob(base64);
+        const buffer = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) {
+            buffer[i] = bytes.charCodeAt(i);
+        }
+        const blob = new Blob([buffer], { type: mimeType });
+        return URL.createObjectURL(blob);
+    }
+    
+    // Convert PCM base64 to WAV data URI for persistence
+    pcmToWavDataUri(base64Pcm, sampleRate = 24000) {
         // Decode base64 PCM
         const pcmBytes = atob(base64Pcm);
         const pcmLength = pcmBytes.length;
@@ -680,9 +696,13 @@ class CognitiaApp {
             uint8Array[44 + i] = pcmBytes.charCodeAt(i);
         }
         
-        // Create blob and URL
-        const blob = new Blob([buffer], { type: 'audio/wav' });
-        return URL.createObjectURL(blob);
+        // Convert to base64 data URI for persistence
+        let binary = '';
+        for (let i = 0; i < uint8Array.length; i++) {
+            binary += String.fromCharCode(uint8Array[i]);
+        }
+        const base64 = btoa(binary);
+        return `data:audio/wav;base64,${base64}`;
     }
     
     // Helper to write string to DataView
