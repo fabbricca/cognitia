@@ -451,14 +451,31 @@ class CognitiaApp {
         const div = document.createElement('div');
         div.className = `message ${role}`;
 
-        let html = `<div class="message-content">${this.escapeHtml(content)}</div>`;
+        let html = '';
         
-        if (audioUrl) {
-            html += `
-                <audio class="message-audio" controls>
-                    <source src="${audioUrl}" type="audio/wav">
-                </audio>
+        // Check if content is an audio data URI (stored voice message)
+        if (content && content.startsWith('data:audio/')) {
+            // Content is audio - display as audio player
+            html = `
+                <div class="message-content audio-message">
+                    <audio controls preload="metadata">
+                        <source src="${content}" type="audio/webm">
+                        <source src="${content}" type="audio/wav">
+                        Your browser does not support audio playback.
+                    </audio>
+                </div>
             `;
+        } else {
+            // Regular text content
+            html = `<div class="message-content">${this.escapeHtml(content)}</div>`;
+            
+            if (audioUrl) {
+                html += `
+                    <audio class="message-audio" controls>
+                        <source src="${audioUrl}" type="audio/wav">
+                    </audio>
+                `;
+            }
         }
 
         div.innerHTML = html;
@@ -592,14 +609,13 @@ class CognitiaApp {
     }
 
     handleTranscription(msg) {
-        // Show transcribed text as user message
+        // Backend sent transcription of user's audio
+        // We already displayed and saved the audio message in stopRecording()
+        // Just log the transcription - don't duplicate the message
         if (msg.text) {
-            this.appendMessage('user', msg.text);
-            
-            // Save transcription
-            if (this.currentChat) {
-                api.createMessage(this.currentChat.id, msg.text, 'user').catch(console.error);
-            }
+            console.log('Transcription received:', msg.text);
+            // Optionally, we could update the audio message to show the transcription
+            // but for now, the audio message itself is sufficient
         }
     }
 
@@ -618,31 +634,35 @@ class CognitiaApp {
 
         this.elements.recordingIndicator.classList.add('hidden');
         
-        const audioData = await this.audio.stopRecording();
-        if (audioData && this.ws && this.currentChat) {
-            // Create a blob URL for the user's audio so they can replay it
-            const audioBlob = this.base64ToBlob(audioData.data, 'audio/webm');
-            const audioUrl = URL.createObjectURL(audioBlob);
-            
-            // Display user's audio message in chat (like WhatsApp)
-            this.appendAudioMessage('user', audioUrl);
-            
-            // Save user's audio message to database
-            // Store as base64 data URI for persistence
-            const audioDataUri = `data:audio/webm;base64,${audioData.data}`;
-            api.createMessage(this.currentChat.id, audioDataUri, 'user').catch(console.error);
-            
-            // Show typing indicator for AI response
-            this.showTypingIndicator();
+        try {
+            const audioData = await this.audio.stopRecording();
+            if (audioData && this.ws && this.currentChat) {
+                // Create a blob URL for the user's audio so they can replay it
+                const audioBlob = this.base64ToBlob(audioData.data, 'audio/webm');
+                const audioUrl = URL.createObjectURL(audioBlob);
+                
+                // Display user's audio message in chat (like WhatsApp)
+                this.appendAudioMessage('user', audioUrl);
+                
+                // Save user's audio message to database
+                // Store as base64 data URI for persistence
+                const audioDataUri = `data:audio/webm;base64,${audioData.data}`;
+                api.createMessage(this.currentChat.id, audioDataUri, 'user').catch(console.error);
+                
+                // Show typing indicator for AI response
+                this.showTypingIndicator();
 
-            // Send to backend
-            this.ws.sendAudio(
-                audioData.data,
-                audioData.format,
-                audioData.sampleRate,
-                this.currentChat.id,
-                this.currentCharacter?.id
-            );
+                // Send to backend
+                this.ws.sendAudio(
+                    audioData.data,
+                    audioData.format,
+                    audioData.sampleRate,
+                    this.currentChat.id,
+                    this.currentCharacter?.id
+                );
+            }
+        } catch (error) {
+            console.error('Error processing audio recording:', error);
         }
     }
     
