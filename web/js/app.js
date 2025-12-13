@@ -16,6 +16,7 @@ class CognitiaApp {
         this.chats = [];
         this.messages = [];
         this.isInCall = false;
+        this.expectingAudioResponse = false; // Track if we sent audio and expect audio back
 
         // Managers
         this.ws = null;
@@ -581,6 +582,11 @@ class CognitiaApp {
         // Hide typing indicator on first chunk
         this.hideTypingIndicator();
         
+        // Skip text if we're expecting audio response (user sent audio)
+        if (this.expectingAudioResponse) {
+            return;
+        }
+        
         // Each sentence is a separate message
         const sentence = msg.content;
         if (sentence && sentence.trim()) {
@@ -606,6 +612,9 @@ class CognitiaApp {
         // Reset streaming state
         this.currentStreamingText = '';
         this.currentStreamingElement = null;
+        
+        // Reset audio expectation flag
+        this.expectingAudioResponse = false;
     }
 
     handleAudioResponse(msg) {
@@ -614,6 +623,9 @@ class CognitiaApp {
         const sampleRate = msg.sample_rate || 24000;
         
         if (audioData) {
+            // Hide typing indicator
+            this.hideTypingIndicator();
+            
             if (this.isInCall) {
                 // Phone call mode: auto-play audio in background
                 this.audio.playAudio(audioData, 'pcm');
@@ -723,6 +735,9 @@ class CognitiaApp {
                 
                 // Show typing indicator for AI response
                 this.showTypingIndicator();
+                
+                // Mark that we expect audio response (skip text messages)
+                this.expectingAudioResponse = true;
 
                 // Send to backend
                 this.ws.sendAudio(
@@ -735,6 +750,7 @@ class CognitiaApp {
             }
         } catch (error) {
             console.error('Error processing audio recording:', error);
+            this.expectingAudioResponse = false;
         }
     }
     
