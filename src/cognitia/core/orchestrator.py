@@ -431,6 +431,59 @@ class Orchestrator:
             full_response += chunk
         return full_response
     
+    async def stream_sentences(
+        self,
+        messages: list[dict],
+        system_prompt: str,
+        temperature: float = 0.8,
+        max_tokens: int = 2048,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Stream LLM response sentence-by-sentence.
+        
+        Buffers tokens until a complete sentence is detected (ends with . ! ?),
+        then yields the complete sentence.
+        
+        Args:
+            messages: Conversation messages
+            system_prompt: System prompt
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+            
+        Yields:
+            Complete sentences as they're generated
+        """
+        import re
+        
+        buffer = ""
+        # Pattern to match sentence endings (including after quotes)
+        sentence_end_pattern = re.compile(r'[.!?]["\'»)]?\s*$')
+        
+        async for chunk in self.stream_llm_response(
+            messages, system_prompt, temperature, max_tokens
+        ):
+            buffer += chunk
+            
+            # Check if we have complete sentences in the buffer
+            # Split on sentence boundaries but keep the delimiter
+            while True:
+                # Look for sentence-ending punctuation followed by space or end
+                match = re.search(r'([.!?]["\'»)]?)\s+', buffer)
+                if match:
+                    # Extract the complete sentence
+                    sentence_end = match.end()
+                    sentence = buffer[:sentence_end].strip()
+                    buffer = buffer[sentence_end:]
+                    
+                    if sentence:
+                        yield sentence
+                else:
+                    break
+        
+        # Yield any remaining content
+        if buffer.strip():
+            yield buffer.strip()
+    
     # -------------------------------------------------------------------------
     # TTS Processing
     # -------------------------------------------------------------------------

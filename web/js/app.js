@@ -313,6 +313,10 @@ class CognitiaApp {
         });
 
         // Handle incoming messages
+        this.ws.on('typing', (msg) => {
+            this.handleTypingIndicator(msg);
+        });
+
         this.ws.on('text_chunk', (msg) => {
             this.handleTextChunk(msg);
         });
@@ -500,8 +504,9 @@ class CognitiaApp {
             console.error('Failed to save message:', error);
         }
 
-        // Create streaming element for response
-        this.currentStreamingElement = this.appendStreamingMessage('assistant');
+        // Show typing indicator (will be replaced when first chunk arrives)
+        this.showTypingIndicator();
+        this.currentStreamingElement = null;
         this.currentStreamingText = '';
 
         // Send to WebSocket
@@ -510,15 +515,52 @@ class CognitiaApp {
         }
     }
 
-    handleTextChunk(msg) {
-        if (this.currentStreamingElement) {
-            this.currentStreamingText += msg.content;
-            this.updateStreamingMessage(this.currentStreamingElement, this.currentStreamingText);
+    showTypingIndicator() {
+        this.hideTypingIndicator();
+        const indicator = document.createElement('div');
+        indicator.className = 'typing-indicator';
+        indicator.id = 'typing-indicator';
+        const name = this.currentCharacter?.name || 'Assistant';
+        indicator.innerHTML = `<span class="typing-name">${name}</span> is typing<span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>`;
+        this.elements.messageContainer.appendChild(indicator);
+        this.scrollToBottom();
+    }
+
+    hideTypingIndicator() {
+        const indicator = document.getElementById('typing-indicator');
+        if (indicator) {
+            indicator.remove();
         }
+    }
+
+    handleTypingIndicator(msg) {
+        // Server sent typing indicator, show it if not already showing
+        if (!document.getElementById('typing-indicator')) {
+            this.showTypingIndicator();
+        }
+    }
+
+    handleTextChunk(msg) {
+        // Hide typing indicator and create message box on first chunk
+        if (!this.currentStreamingElement) {
+            this.hideTypingIndicator();
+            this.currentStreamingElement = this.appendStreamingMessage('assistant');
+            this.currentStreamingText = '';
+        }
+        
+        // Add sentence with space separator
+        if (this.currentStreamingText && !this.currentStreamingText.endsWith(' ')) {
+            this.currentStreamingText += ' ';
+        }
+        this.currentStreamingText += msg.content;
+        this.updateStreamingMessage(this.currentStreamingElement, this.currentStreamingText);
     }
 
     handleTextComplete(msg) {
         const fullText = msg.content || this.currentStreamingText;
+        
+        // Hide typing indicator
+        this.hideTypingIndicator();
         
         // If we don't have a streaming element (e.g., non-streaming mode), create one
         if (!this.currentStreamingElement && fullText) {

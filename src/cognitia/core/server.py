@@ -247,6 +247,107 @@ async def synthesize_speech(request: SynthesizeRequest) -> SynthesizeResponse:
 # WebSocket Endpoint (for streaming)
 # -------------------------------------------------------------------------
 
+async def _process_with_sentence_streaming(
+    websocket: WebSocket,
+    orchestrator: "Orchestrator",
+    request: "ProcessingRequest",
+    with_audio: bool = True,
+):
+    """
+    Process a request with sentence-by-sentence streaming.
+    
+    For each sentence:
+    1. Send text_chunk with the sentence
+    2. If with_audio, synthesize and send audio for the sentence
+    
+    At the end, send text_complete with full response.
+    """
+    import asyncio
+    import base64
+    
+    loop = asyncio.get_event_loop()
+    
+    # First, handle STT if needed (parallel with context)
+    stt_future = loop.run_in_executor(
+        orchestrator.executor,
+        orchestrator.process_stt_if_needed,
+        request.message,
+        request.communication_type,
+    )
+    context_future = loop.run_in_executor(
+        orchestrator.executor,
+        orchestrator.fetch_context,
+        request,
+    )
+    user_message, context = await asyncio.gather(stt_future, context_future)
+    context.user_message = user_message
+    context.enriched_system_prompt = orchestrator.enrich_system_prompt(context)
+    
+    # Build messages for LLM
+    messages = context.conversation.conversation_history + [
+        {"role": "user", "content": context.user_message}
+    ]
+    
+    # Send typing indicator
+    await websocket.send_json({
+        "type": "typing",
+        "model_name": context.model.name,
+    })
+    
+    # Stream sentence-by-sentence
+    full_response = ""
+    sentence_count = 0
+    
+    async for sentence in orchestrator.stream_sentences(
+        messages,
+        context.enriched_system_prompt,
+        request.temperature,
+        request.max_tokens,
+    ):
+        full_response += sentence + " "
+        sentence_count += 1
+        
+        # Send the sentence as text
+        await websocket.send_json({
+            "type": "text_chunk",
+            "content": sentence,
+            "sentence_index": sentence_count,
+        })
+        
+        # Generate and send audio for this sentence if enabled
+        if with_audio and sentence.strip():
+            try:
+                audio_bytes, sample_rate = await loop.run_in_executor(
+                    orchestrator.executor,
+                    orchestrator.synthesize_speech,
+                    sentence,
+                    context.model.voice,
+                )
+                
+                # Apply RVC if enabled
+                if context.model.rvc_enabled and context.model.rvc_model_path:
+                    audio_bytes = await orchestrator.apply_rvc(
+                        audio_bytes,
+                        context.model.rvc_model_path,
+                        sample_rate,
+                    )
+                
+                await websocket.send_json({
+                    "type": "audio",
+                    "content": base64.b64encode(audio_bytes).decode("ascii"),
+                    "sample_rate": sample_rate,
+                    "sentence_index": sentence_count,
+                })
+            except Exception as e:
+                logger.warning(f"TTS failed for sentence: {e}")
+    
+    # Send complete message
+    await websocket.send_json({
+        "type": "text_complete",
+        "content": full_response.strip(),
+    })
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
@@ -321,50 +422,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     
                     # Decide streaming behavior based on communication type
                     if request.communication_type == CommunicationType.PHONE:
-                        # Phone mode: Stream sentence-by-sentence with TTS
-                        async def on_chunk(chunk: str):
-                            await websocket.send_json({
-                                "type": "text_chunk",
-                                "content": chunk,
-                            })
-                        
-                        async def on_complete(full_text: str):
-                            await websocket.send_json({
-                                "type": "text_complete",
-                                "content": full_text,
-                            })
-                        
-                        response = await orchestrator.process_streaming(
-                            request,
-                            on_text_chunk=on_chunk,
-                            on_complete=on_complete,
+                        # Phone mode: Stream sentence-by-sentence with TTS for each
+                        await _process_with_sentence_streaming(
+                            websocket, orchestrator, request, with_audio=True
                         )
-                        
-                        # Send audio if generated
-                        if response.type == "audio":
-                            await websocket.send_json({
-                                "type": "audio",
-                                "content": response.content,
-                                "sample_rate": response.sample_rate,
-                            })
                     else:
-                        # Chat mode (TEXT/AUDIO): Don't stream, wait for full response
-                        # Then send text_complete + audio if long
-                        response = await orchestrator.process(request)
-                        
-                        # Always send the text complete first
-                        await websocket.send_json({
-                            "type": "text_complete",
-                            "content": response.text_content,
-                        })
-                        
-                        # Send audio if generated (long response)
-                        if response.type == "audio":
-                            await websocket.send_json({
-                                "type": "audio",
-                                "content": response.content,
-                                "sample_rate": response.sample_rate,
-                            })
+                        # Chat mode: Stream sentence-by-sentence, audio only for long responses
+                        await _process_with_sentence_streaming(
+                            websocket, orchestrator, request, with_audio=True
+                        )
                     
                 except Exception as e:
                     logger.exception(f"WebSocket processing error: {e}")

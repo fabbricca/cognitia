@@ -606,10 +606,12 @@ async def websocket_endpoint(websocket: WebSocket):
     
     # Authenticate
     try:
+        logger.info("Waiting for auth message...")
         auth_msg = await asyncio.wait_for(
             websocket.receive_json(),
             timeout=30.0
         )
+        logger.info(f"Received auth message: {auth_msg.get('type')}")
         
         if auth_msg.get("type") != "auth":
             await websocket.send_json({
@@ -620,9 +622,12 @@ async def websocket_endpoint(websocket: WebSocket):
             return
         
         token = auth_msg.get("token", "")
+        logger.info(f"Token received: {token[:20]}..." if token else "Token empty")
         user_id = verify_token(token)
+        logger.info(f"Token verification result: user_id={user_id}")
         
         if not user_id:
+            logger.warning("Token verification failed")
             await websocket.send_json({
                 "type": "error",
                 "message": "Invalid token"
@@ -637,14 +642,18 @@ async def websocket_endpoint(websocket: WebSocket):
         })
         
     except asyncio.TimeoutError:
+        logger.warning("WebSocket auth timeout")
         await websocket.send_json({
             "type": "error",
             "message": "Auth timeout"
         })
         await websocket.close()
         return
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected during auth")
+        return
     except Exception as e:
-        logger.error(f"WebSocket auth error: {e}")
+        logger.error(f"WebSocket auth error: {type(e).__name__}: {e}")
         await websocket.close()
         return
     
@@ -688,7 +697,8 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
     from .database import get_session, Character, Chat, Message
     
     try:
-        async with websockets.connect(CORE_WS_URL) as core_ws:
+        # Increase max_size to 50MB for large audio responses
+        async with websockets.connect(CORE_WS_URL, max_size=50 * 1024 * 1024) as core_ws:
             async def forward_to_core():
                 """Forward client messages to Core."""
                 try:
@@ -753,6 +763,7 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                             "rvc_enabled": msg.get("rvc_enabled", False),
                         }
                         
+                        logger.info(f"Forwarding to Core: type={core_msg['type']}, message={core_msg['message'][:50] if core_msg['message'] else 'empty'}")
                         await core_ws.send(json.dumps(core_msg))
                         
                 except WebSocketDisconnect:
@@ -763,9 +774,10 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                 try:
                     async for message in core_ws:
                         data = json.loads(message)
+                        logger.info(f"Received from Core: type={data.get('type')}")
                         await websocket.send_json(data)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"Forward to client error: {e}")
             
             await asyncio.gather(
                 forward_to_core(),
