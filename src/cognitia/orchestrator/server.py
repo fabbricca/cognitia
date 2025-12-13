@@ -36,7 +36,7 @@ from pydantic import BaseModel
 
 # Configuration from environment
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:latest")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "hf.co/TheBloke/Mythalion-13B-GGUF:Q4_K_M")
 RVC_URL = os.getenv("RVC_URL", "http://localhost:5050")
 TTS_VOICE = os.getenv("TTS_VOICE", "af_bella")
 SHORT_RESPONSE_THRESHOLD = int(os.getenv("SHORT_RESPONSE_THRESHOLD", "100"))  # chars

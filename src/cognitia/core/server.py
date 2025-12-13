@@ -294,33 +294,30 @@ async def _process_with_sentence_streaming(
         "model_name": context.model.name,
     })
     
-    # Stream sentence-by-sentence
+    # Stream sentence-by-sentence with batching for short sentences
     full_response = ""
     sentence_count = 0
+    pending_text = ""  # Buffer for short sentences
     
-    async for sentence in orchestrator.stream_sentences(
-        messages,
-        context.enriched_system_prompt,
-        request.temperature,
-        request.max_tokens,
-    ):
-        full_response += sentence + " "
+    async def send_chunk(text: str):
+        """Send a text chunk and optionally audio."""
+        nonlocal sentence_count
         sentence_count += 1
         
-        # Send the sentence as text
+        # Send the text
         await websocket.send_json({
             "type": "text_chunk",
-            "content": sentence,
+            "content": text,
             "sentence_index": sentence_count,
         })
         
-        # Generate and send audio for this sentence if enabled
-        if with_audio and sentence.strip():
+        # Generate and send audio if enabled
+        if with_audio and text.strip():
             try:
                 audio_bytes, sample_rate = await loop.run_in_executor(
                     orchestrator.executor,
                     orchestrator.synthesize_speech,
-                    sentence,
+                    text,
                     context.model.voice,
                 )
                 
@@ -339,7 +336,39 @@ async def _process_with_sentence_streaming(
                     "sentence_index": sentence_count,
                 })
             except Exception as e:
-                logger.warning(f"TTS failed for sentence: {e}")
+                logger.warning(f"TTS failed for chunk: {e}")
+    
+    async for sentence in orchestrator.stream_sentences(
+        messages,
+        context.enriched_system_prompt,
+        request.temperature,
+        request.max_tokens,
+    ):
+        full_response += sentence + " "
+        
+        # Count words in the sentence
+        word_count = len(sentence.split())
+        
+        if word_count >= 10:
+            # Long enough sentence - send any pending text first, then this sentence
+            if pending_text:
+                await send_chunk(pending_text.strip())
+                pending_text = ""
+            await send_chunk(sentence)
+        else:
+            # Short sentence - add to pending buffer
+            pending_text += sentence + " "
+            
+            # If we have 2+ sentences buffered, send them together
+            # Count sentences by looking for sentence-ending punctuation
+            sentence_ends = pending_text.count('.') + pending_text.count('!') + pending_text.count('?')
+            if sentence_ends >= 2:
+                await send_chunk(pending_text.strip())
+                pending_text = ""
+    
+    # Send any remaining pending text
+    if pending_text.strip():
+        await send_chunk(pending_text.strip())
     
     # Send complete message
     await websocket.send_json({
@@ -421,15 +450,21 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                     
                     # Decide streaming behavior based on communication type
+                    # Audio input -> Audio output, Text input -> Text output
                     if request.communication_type == CommunicationType.PHONE:
                         # Phone mode: Stream sentence-by-sentence with TTS for each
                         await _process_with_sentence_streaming(
                             websocket, orchestrator, request, with_audio=True
                         )
-                    else:
-                        # Chat mode: Stream sentence-by-sentence, audio only for long responses
+                    elif request.communication_type == CommunicationType.AUDIO:
+                        # Audio message: Reply with audio
                         await _process_with_sentence_streaming(
                             websocket, orchestrator, request, with_audio=True
+                        )
+                    else:
+                        # Text mode: Reply with text only, no audio
+                        await _process_with_sentence_streaming(
+                            websocket, orchestrator, request, with_audio=False
                         )
                     
                 except Exception as e:

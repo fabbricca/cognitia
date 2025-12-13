@@ -1,5 +1,5 @@
 Glados:
-  llm_model: "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:latest"
+  llm_model: "hf.co/TheBloke/Mythalion-13B-GGUF:Q4_K_M"
   completion_url: "http://localhost:11434/api/chat"
   api_key: null
   interruptible: true

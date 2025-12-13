@@ -799,7 +799,7 @@ async def _text_only_mode(websocket: WebSocket, user_id: str):
     from .database import get_session, Character, Message
     
     OLLAMA_URL = os.getenv("OLLAMA_URL", "http://10.0.0.15:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:latest")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "hf.co/TheBloke/Mythalion-13B-GGUF:Q4_K_M")
     
     current_system_prompt = "You are a helpful AI assistant."
     conversation_history: list[dict] = []

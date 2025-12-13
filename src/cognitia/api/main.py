@@ -330,7 +330,7 @@ async def stream_ollama_response(
 ):
     """Stream response from Ollama (text-only fallback)."""
     OLLAMA_URL = os.getenv("OLLAMA_URL", "http://10.0.0.15:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:latest")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "hf.co/TheBloke/Mythalion-13B-GGUF:Q4_K_M")
     
     full_messages = [{"role": "system", "content": system_prompt}] + messages
     

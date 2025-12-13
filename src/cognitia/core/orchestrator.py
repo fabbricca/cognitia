@@ -131,7 +131,7 @@ class Orchestrator:
     def __init__(
         self,
         ollama_url: str = "http://localhost:11434",
-        ollama_model: str = "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:latest",
+        ollama_model: str = "hf.co/TheBloke/Mythalion-13B-GGUF:Q4_K_M",
         rvc_service_url: Optional[str] = "http://localhost:5050",
         default_voice: str = "af_bella",
         asr_engine: str = "ctc",
@@ -865,7 +865,7 @@ def get_orchestrator() -> Orchestrator:
         import os
         _orchestrator = Orchestrator(
             ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
-            ollama_model=os.getenv("OLLAMA_MODEL", "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:latest"),
+            ollama_model=os.getenv("OLLAMA_MODEL", "hf.co/TheBloke/Mythalion-13B-GGUF:Q4_K_M"),
             rvc_service_url=os.getenv("RVC_URL", "http://localhost:5050"),
             default_voice=os.getenv("DEFAULT_VOICE", "af_bella"),
             asr_engine=os.getenv("ASR_ENGINE", "ctc"),

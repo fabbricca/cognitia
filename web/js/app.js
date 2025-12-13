@@ -462,8 +462,10 @@ class CognitiaApp {
         }
 
         div.innerHTML = html;
-        this.elements.messagesContainer.appendChild(div);
-        this.scrollToBottom();
+        if (this.elements.messagesContainer) {
+            this.elements.messagesContainer.appendChild(div);
+            this.scrollToBottom();
+        }
         return div;
     }
 
@@ -471,7 +473,9 @@ class CognitiaApp {
         const div = document.createElement('div');
         div.className = `message ${role}`;
         div.innerHTML = '<div class="message-content"></div>';
-        this.elements.messagesContainer.appendChild(div);
+        if (this.elements.messagesContainer) {
+            this.elements.messagesContainer.appendChild(div);
+        }
         return div;
     }
 
@@ -484,7 +488,9 @@ class CognitiaApp {
     }
 
     scrollToBottom() {
-        this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
+        if (this.elements.messagesContainer) {
+            this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
+        }
     }
 
     // Message handling
@@ -516,13 +522,19 @@ class CognitiaApp {
     }
 
     showTypingIndicator() {
+        // Safety check - ensure container exists
+        if (!this.elements.messagesContainer) {
+            console.warn('Messages container not found, cannot show typing indicator');
+            return;
+        }
+        
         this.hideTypingIndicator();
         const indicator = document.createElement('div');
         indicator.className = 'typing-indicator';
         indicator.id = 'typing-indicator';
         const name = this.currentCharacter?.name || 'Assistant';
         indicator.innerHTML = `<span class="typing-name">${name}</span> is typing<span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>`;
-        this.elements.messageContainer.appendChild(indicator);
+        this.elements.messagesContainer.appendChild(indicator);
         this.scrollToBottom();
     }
 
@@ -541,50 +553,41 @@ class CognitiaApp {
     }
 
     handleTextChunk(msg) {
-        // Hide typing indicator and create message box on first chunk
-        if (!this.currentStreamingElement) {
-            this.hideTypingIndicator();
-            this.currentStreamingElement = this.appendStreamingMessage('assistant');
-            this.currentStreamingText = '';
-        }
+        // Hide typing indicator on first chunk
+        this.hideTypingIndicator();
         
-        // Add sentence with space separator
-        if (this.currentStreamingText && !this.currentStreamingText.endsWith(' ')) {
-            this.currentStreamingText += ' ';
+        // Each sentence is a separate message
+        const sentence = msg.content;
+        if (sentence && sentence.trim()) {
+            // Create a new message element for this sentence
+            this.appendMessage('assistant', sentence);
+            
+            // Save to database
+            if (this.currentChat) {
+                api.createMessage(this.currentChat.id, sentence, 'assistant').catch(console.error);
+            }
+            
+            this.messages.push({ role: 'assistant', content: sentence });
         }
-        this.currentStreamingText += msg.content;
-        this.updateStreamingMessage(this.currentStreamingElement, this.currentStreamingText);
     }
 
     handleTextComplete(msg) {
-        const fullText = msg.content || this.currentStreamingText;
-        
         // Hide typing indicator
         this.hideTypingIndicator();
         
-        // If we don't have a streaming element (e.g., non-streaming mode), create one
-        if (!this.currentStreamingElement && fullText) {
-            this.currentStreamingElement = this.appendStreamingMessage('assistant');
-        }
+        // In sentence-by-sentence mode, messages were already created in handleTextChunk
+        // This handler is mainly for cleanup and non-streaming fallback
         
-        if (this.currentStreamingElement) {
-            this.updateStreamingMessage(this.currentStreamingElement, fullText);
-            this.currentStreamingElement = null;
-        }
-
-        // Save assistant message (only if we have content)
-        if (this.currentChat && fullText && fullText.trim()) {
-            api.createMessage(this.currentChat.id, fullText, 'assistant').catch(console.error);
-        }
-
-        if (fullText) {
-            this.messages.push({ role: 'assistant', content: fullText });
-        }
+        // Reset streaming state
+        this.currentStreamingText = '';
+        this.currentStreamingElement = null;
     }
 
     handleAudioResponse(msg) {
-        if (msg.data) {
-            this.audio.playAudio(msg.data, msg.format || 'wav');
+        // Core sends 'content', but also support 'data' for backwards compatibility
+        const audioData = msg.content || msg.data;
+        if (audioData) {
+            this.audio.playAudio(audioData, msg.format || 'wav');
         }
     }
 
@@ -616,11 +619,23 @@ class CognitiaApp {
         this.elements.recordingIndicator.classList.add('hidden');
         
         const audioData = await this.audio.stopRecording();
-        if (audioData && this.ws) {
-            // Create streaming element for response
-            this.currentStreamingElement = this.appendStreamingMessage('assistant');
-            this.currentStreamingText = '';
+        if (audioData && this.ws && this.currentChat) {
+            // Create a blob URL for the user's audio so they can replay it
+            const audioBlob = this.base64ToBlob(audioData.data, 'audio/webm');
+            const audioUrl = URL.createObjectURL(audioBlob);
+            
+            // Display user's audio message in chat (like WhatsApp)
+            this.appendAudioMessage('user', audioUrl);
+            
+            // Save user's audio message to database
+            // Store as base64 data URI for persistence
+            const audioDataUri = `data:audio/webm;base64,${audioData.data}`;
+            api.createMessage(this.currentChat.id, audioDataUri, 'user').catch(console.error);
+            
+            // Show typing indicator for AI response
+            this.showTypingIndicator();
 
+            // Send to backend
             this.ws.sendAudio(
                 audioData.data,
                 audioData.format,
@@ -629,6 +644,37 @@ class CognitiaApp {
                 this.currentCharacter?.id
             );
         }
+    }
+    
+    // Helper to convert base64 to Blob
+    base64ToBlob(base64, mimeType) {
+        const byteCharacters = atob(base64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        return new Blob([byteArray], { type: mimeType });
+    }
+    
+    // Append audio message (for voice messages)
+    appendAudioMessage(role, audioUrl) {
+        const div = document.createElement('div');
+        div.className = `message ${role}`;
+        div.innerHTML = `
+            <div class="message-content audio-message">
+                <audio controls preload="metadata">
+                    <source src="${audioUrl}" type="audio/webm">
+                    <source src="${audioUrl}" type="audio/wav">
+                    Your browser does not support audio playback.
+                </audio>
+            </div>
+        `;
+        if (this.elements.messagesContainer) {
+            this.elements.messagesContainer.appendChild(div);
+            this.scrollToBottom();
+        }
+        return div;
     }
 
     // Call mode
