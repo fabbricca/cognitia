@@ -426,30 +426,163 @@ body::before {
     color: var(--text-primary);
 }
 
-/* Audio message styling (WhatsApp-style voice messages) */
+/* Audio message styling (Custom voice message player) */
 .audio-message {
-    padding: var(--spacing-sm) !important;
-    min-width: 200px;
-    max-width: 300px;
+    padding: var(--spacing-sm) var(--spacing-md) !important;
+    min-width: 250px;
+    max-width: 350px;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    border-radius: var(--border-radius);
 }
 
+/* Hide the default audio element */
 .audio-message audio {
+    display: none;
+}
+
+/* Custom audio player container */
+.audio-player {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
     width: 100%;
-    height: 40px;
-    border-radius: 20px;
 }
 
-/* Style the audio player */
-.audio-message audio::-webkit-media-controls-panel {
+/* Play/Pause button */
+.audio-play-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid var(--text-primary);
     background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    transition: all 0.2s;
+    flex-shrink: 0;
 }
 
+.audio-play-btn:hover {
+    background: var(--text-primary);
+    color: var(--bg-primary);
+    box-shadow: 0 0 10px var(--border-glow);
+}
+
+.audio-play-btn.playing {
+    background: var(--text-primary);
+    color: var(--bg-primary);
+}
+
+/* Waveform container */
+.audio-waveform {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+/* Waveform bars */
+.audio-bars {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 24px;
+}
+
+.audio-bar {
+    width: 3px;
+    background: var(--text-dim);
+    border-radius: 2px;
+    transition: background 0.1s;
+}
+
+.audio-bar.played {
+    background: var(--text-primary);
+}
+
+/* Progress slider */
+.audio-progress {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--text-dim);
+    border-radius: 2px;
+    cursor: pointer;
+    outline: none;
+}
+
+.audio-progress::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    background: var(--text-primary);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 5px var(--text-primary);
+}
+
+.audio-progress::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    background: var(--text-primary);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 5px var(--text-primary);
+}
+
+/* Time display */
+.audio-time {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+}
+
+/* User vs Assistant styling */
 .message.user .audio-message {
     background: var(--bg-tertiary);
+    border: 1px solid var(--accent-cyan);
+}
+
+.message.user .audio-play-btn {
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+}
+
+.message.user .audio-play-btn:hover,
+.message.user .audio-play-btn.playing {
+    background: var(--accent-cyan);
+    color: var(--bg-primary);
+}
+
+.message.user .audio-bar.played {
+    background: var(--accent-cyan);
+}
+
+.message.user .audio-progress::-webkit-slider-thumb {
+    background: var(--accent-cyan);
+    box-shadow: 0 0 5px var(--accent-cyan);
 }
 
 .message.assistant .audio-message {
     background: var(--bg-secondary);
+    border: 1px solid var(--text-dim);
+}
+
+/* Microphone icon for voice messages */
+.audio-mic-icon {
+    font-size: 16px;
+    color: var(--text-dim);
+    margin-left: auto;
 }
 
 /* Input Area */

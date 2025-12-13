@@ -452,35 +452,43 @@ class CognitiaApp {
         div.className = `message ${role}`;
 
         let html = '';
+        let isAudioMessage = false;
         
         // Check if content is an audio data URI (stored voice message)
         if (content && content.startsWith('data:audio/')) {
-            // Content is audio - display as audio player
+            // Content is audio - display as custom audio player
             html = `
                 <div class="message-content audio-message">
-                    <audio controls preload="metadata">
-                        <source src="${content}" type="audio/webm">
-                        <source src="${content}" type="audio/wav">
-                        Your browser does not support audio playback.
-                    </audio>
+                    ${this.createAudioPlayerHTML(content)}
                 </div>
             `;
+            isAudioMessage = true;
         } else {
             // Regular text content
             html = `<div class="message-content">${this.escapeHtml(content)}</div>`;
             
             if (audioUrl) {
                 html += `
-                    <audio class="message-audio" controls>
-                        <source src="${audioUrl}" type="audio/wav">
-                    </audio>
+                    <div class="message-content audio-message">
+                        ${this.createAudioPlayerHTML(audioUrl)}
+                    </div>
                 `;
+                isAudioMessage = true;
             }
         }
 
         div.innerHTML = html;
         if (this.elements.messagesContainer) {
             this.elements.messagesContainer.appendChild(div);
+            
+            // Initialize audio player if this is an audio message
+            if (isAudioMessage) {
+                const audioMessage = div.querySelector('.audio-message');
+                if (audioMessage) {
+                    this.initAudioPlayer(audioMessage);
+                }
+            }
+            
             this.scrollToBottom();
         }
         return div;
@@ -677,21 +685,121 @@ class CognitiaApp {
         return new Blob([byteArray], { type: mimeType });
     }
     
+    // Create custom audio player HTML
+    createAudioPlayerHTML(audioUrl) {
+        // Generate random waveform bars for visual effect
+        const barCount = 25;
+        let barsHTML = '';
+        for (let i = 0; i < barCount; i++) {
+            const height = Math.floor(Math.random() * 16) + 8; // 8-24px
+            barsHTML += `<div class="audio-bar" style="height: ${height}px;"></div>`;
+        }
+        
+        return `
+            <div class="audio-player" data-audio-url="${audioUrl}">
+                <button class="audio-play-btn" title="Play/Pause">▶</button>
+                <div class="audio-waveform">
+                    <div class="audio-bars">${barsHTML}</div>
+                    <input type="range" class="audio-progress" value="0" min="0" max="100" step="0.1">
+                </div>
+                <span class="audio-time">0:00</span>
+                <span class="audio-mic-icon">🎤</span>
+            </div>
+            <audio preload="metadata">
+                <source src="${audioUrl}" type="audio/webm">
+                <source src="${audioUrl}" type="audio/wav">
+            </audio>
+        `;
+    }
+    
+    // Initialize audio player controls
+    initAudioPlayer(container) {
+        const audio = container.querySelector('audio');
+        const playBtn = container.querySelector('.audio-play-btn');
+        const progress = container.querySelector('.audio-progress');
+        const timeDisplay = container.querySelector('.audio-time');
+        const bars = container.querySelectorAll('.audio-bar');
+        
+        if (!audio || !playBtn) return;
+        
+        // Format time as M:SS
+        const formatTime = (seconds) => {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        };
+        
+        // Update time display when metadata loads
+        audio.addEventListener('loadedmetadata', () => {
+            timeDisplay.textContent = formatTime(audio.duration);
+            progress.max = audio.duration;
+        });
+        
+        // Play/Pause toggle
+        playBtn.addEventListener('click', () => {
+            if (audio.paused) {
+                // Pause any other playing audio
+                document.querySelectorAll('audio').forEach(a => {
+                    if (a !== audio && !a.paused) {
+                        a.pause();
+                        a.closest('.audio-message')?.querySelector('.audio-play-btn')?.classList.remove('playing');
+                        a.closest('.audio-message')?.querySelector('.audio-play-btn').textContent = '▶';
+                    }
+                });
+                audio.play();
+                playBtn.classList.add('playing');
+                playBtn.textContent = '⏸';
+            } else {
+                audio.pause();
+                playBtn.classList.remove('playing');
+                playBtn.textContent = '▶';
+            }
+        });
+        
+        // Update progress as audio plays
+        audio.addEventListener('timeupdate', () => {
+            progress.value = audio.currentTime;
+            timeDisplay.textContent = formatTime(audio.currentTime);
+            
+            // Update waveform bars to show progress
+            const progressPercent = (audio.currentTime / audio.duration) * 100;
+            bars.forEach((bar, index) => {
+                const barPercent = (index / bars.length) * 100;
+                if (barPercent <= progressPercent) {
+                    bar.classList.add('played');
+                } else {
+                    bar.classList.remove('played');
+                }
+            });
+        });
+        
+        // Seek when progress bar is changed
+        progress.addEventListener('input', () => {
+            audio.currentTime = progress.value;
+        });
+        
+        // Reset when audio ends
+        audio.addEventListener('ended', () => {
+            playBtn.classList.remove('playing');
+            playBtn.textContent = '▶';
+            progress.value = 0;
+            timeDisplay.textContent = formatTime(audio.duration);
+            bars.forEach(bar => bar.classList.remove('played'));
+        });
+    }
+    
     // Append audio message (for voice messages)
     appendAudioMessage(role, audioUrl) {
         const div = document.createElement('div');
         div.className = `message ${role}`;
         div.innerHTML = `
             <div class="message-content audio-message">
-                <audio controls preload="metadata">
-                    <source src="${audioUrl}" type="audio/webm">
-                    <source src="${audioUrl}" type="audio/wav">
-                    Your browser does not support audio playback.
-                </audio>
+                ${this.createAudioPlayerHTML(audioUrl)}
             </div>
         `;
         if (this.elements.messagesContainer) {
             this.elements.messagesContainer.appendChild(div);
+            this.initAudioPlayer(div.querySelector('.audio-message'));
             this.scrollToBottom();
         }
         return div;
