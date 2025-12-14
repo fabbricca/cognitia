@@ -62,6 +62,7 @@ class CharacterCreate(BaseModel):
     system_prompt: str = Field(..., min_length=1, description="Short behavior rules and constraints")
     persona_prompt: Optional[str] = Field(None, description="Detailed character biography/lorebook")
     voice_model: str = Field(default="af_bella", max_length=100)
+    prompt_template: str = Field(default="pygmalion", description="Prompt format: pygmalion, alpaca, or chatml")
     avatar_url: Optional[str] = None
 
 
@@ -72,6 +73,7 @@ class CharacterUpdate(BaseModel):
     system_prompt: Optional[str] = None
     persona_prompt: Optional[str] = None
     voice_model: Optional[str] = Field(None, max_length=100)
+    prompt_template: Optional[str] = Field(None, description="Prompt format: pygmalion, alpaca, or chatml")
     avatar_url: Optional[str] = None
 
 
@@ -83,6 +85,7 @@ class CharacterResponse(BaseModel):
     system_prompt: str
     persona_prompt: Optional[str]
     voice_model: str
+    prompt_template: str
     rvc_model_path: Optional[str]
     rvc_index_path: Optional[str]
     avatar_url: Optional[str]

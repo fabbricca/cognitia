@@ -197,11 +197,12 @@ export class ApiClient {
         return this.request('GET', `/api/characters/${id}`);
     }
 
-    async createCharacter(name, systemPrompt, personaPrompt = null, voiceModel = 'glados') {
-        const data = { 
-            name, 
-            system_prompt: systemPrompt, 
-            voice_model: voiceModel 
+    async createCharacter(name, systemPrompt, personaPrompt = null, voiceModel = 'glados', promptTemplate = 'pygmalion') {
+        const data = {
+            name,
+            system_prompt: systemPrompt,
+            voice_model: voiceModel,
+            prompt_template: promptTemplate
         };
         if (personaPrompt) {
             data.persona_prompt = personaPrompt;

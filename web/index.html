@@ -339,7 +339,17 @@
                         <textarea id="character-persona" rows="6" placeholder="Detailed character biography, personality traits, background story, likes/dislikes, speech patterns..."></textarea>
                         <p class="form-hint">Rich character details for roleplay. This goes in a separate prompt block for better LLM performance.</p>
                     </div>
-                    
+
+                    <div class="form-group">
+                        <label for="prompt-template-select">Prompt Format</label>
+                        <select id="prompt-template-select">
+                            <option value="pygmalion" selected>Pygmalion/Metharme (Recommended)</option>
+                            <option value="alpaca">Alpaca</option>
+                            <option value="chatml">ChatML</option>
+                        </select>
+                        <p class="form-hint">Prompt formatting style. Pygmalion is recommended for Mythalion-13B roleplay.</p>
+                    </div>
+
                     <div class="form-group">
                         <label for="voice-model-select">Voice</label>
                         <select id="voice-model-select">

@@ -146,6 +146,7 @@ class CognitiaApp {
             characterNameInput: document.getElementById('character-name-input'),
             characterPreprompt: document.getElementById('character-preprompt'),
             characterPersona: document.getElementById('character-persona'),
+            promptTemplateSelect: document.getElementById('prompt-template-select'),
             voiceModelSelect: document.getElementById('voice-model-select'),
             pthFile: document.getElementById('pth-file'),
             indexFile: document.getElementById('index-file'),
@@ -1585,6 +1586,7 @@ class CognitiaApp {
             if (this.elements.characterPersona) {
                 this.elements.characterPersona.value = character.persona_prompt || '';
             }
+            this.elements.promptTemplateSelect.value = character.prompt_template || 'pygmalion';
             this.elements.voiceModelSelect.value = character.voice_model || 'glados';
             this.elements.deleteCharacter.classList.remove('hidden');
             
@@ -1605,6 +1607,7 @@ class CognitiaApp {
             if (this.elements.characterPersona) {
                 this.elements.characterPersona.value = '';
             }
+            this.elements.promptTemplateSelect.value = 'pygmalion';
             this.elements.voiceModelSelect.value = 'glados';
             this.elements.pthFile.value = '';
             this.elements.indexFile.value = '';
@@ -1771,6 +1774,7 @@ class CognitiaApp {
         const name = this.elements.characterNameInput.value.trim();
         const preprompt = this.elements.characterPreprompt.value.trim();
         const personaPrompt = this.elements.characterPersona?.value.trim() || '';
+        const promptTemplate = this.elements.promptTemplateSelect.value;
         const voiceModel = this.elements.voiceModelSelect.value;
         const pthFile = this.elements.pthFile.files[0];
         const indexFile = this.elements.indexFile.files[0];
@@ -1809,6 +1813,7 @@ class CognitiaApp {
                     name,
                     system_prompt: preprompt,
                     persona_prompt: personaPrompt || null,
+                    prompt_template: promptTemplate,
                     voice_model: voiceModel
                 });
                 
@@ -1828,7 +1833,7 @@ class CognitiaApp {
                 }
             } else {
                 // Create new character first
-                character = await api.createCharacter(name, preprompt, personaPrompt || null, voiceModel);
+                character = await api.createCharacter(name, preprompt, personaPrompt || null, voiceModel, promptTemplate);
                 
                 // Upload avatar if provided
                 if (avatarFile) {

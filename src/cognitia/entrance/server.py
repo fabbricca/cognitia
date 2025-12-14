@@ -377,6 +377,7 @@ async def create_character(
         system_prompt=data.system_prompt,
         persona_prompt=data.persona_prompt,
         voice_model=data.voice_model,
+        prompt_template=data.prompt_template,
         avatar_url=data.avatar_url,
     )
     session.add(character)
@@ -1264,6 +1265,7 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                                     msg["model_id"] = str(char.id)
                                     msg["model_name"] = char.name
                                     msg["voice"] = char.voice_model
+                                    msg["prompt_template"] = char.prompt_template
                                     msg["rvc_model_path"] = char.rvc_model_path
                                     msg["rvc_enabled"] = char.rvc_model_path is not None
                         
@@ -1295,6 +1297,7 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                             "conversation_history": msg.get("conversation_history", []),
                             "model_name": msg.get("model_name", "Assistant"),
                             "voice": msg.get("voice", "af_bella"),
+                            "prompt_template": msg.get("prompt_template", "pygmalion"),
                             "rvc_model_path": msg.get("rvc_model_path"),
                             "rvc_enabled": msg.get("rvc_enabled", False),
                         }

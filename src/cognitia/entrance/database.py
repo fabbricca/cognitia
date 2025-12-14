@@ -140,6 +140,10 @@ class Character(Base):
     voice_model: Mapped[str] = mapped_column(
         String(100), default="af_bella", nullable=False
     )
+    # Prompt template format (pygmalion, alpaca, chatml)
+    prompt_template: Mapped[str] = mapped_column(
+        String(50), default="pygmalion", nullable=False
+    )
     rvc_model_path: Mapped[Optional[str]] = mapped_column(
         String(255), nullable=True
     )
