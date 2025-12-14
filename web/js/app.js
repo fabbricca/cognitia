@@ -561,7 +561,7 @@ class CognitiaApp {
 
     async loadUsage() {
         try {
-            const usage = await api.request('/api/subscription/usage');
+            const usage = await api.request('GET', '/api/subscription/usage');
 
             // Show widget
             this.elements.usageWidget.classList.remove('hidden');
