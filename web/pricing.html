@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pricing - Cognitia</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        /* Pricing Page Specific Styles */
+        .pricing-page {
+            min-height: 100vh;
+            background: var(--bg-primary);
+            padding: 40px 20px;
+        }
+
+        .pricing-header {
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto 60px;
+        }
+
+        .pricing-header h1 {
+            font-size: 48px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 16px;
+            letter-spacing: -0.02em;
+        }
+
+        .pricing-header p {
+            font-size: 20px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .billing-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            margin: 40px 0;
+        }
+
+        .billing-toggle span {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .billing-toggle span.active {
+            color: var(--accent);
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 60px;
+            height: 32px;
+            background: var(--border-color);
+            border-radius: 16px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .toggle-switch.active {
+            background: var(--accent);
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 26px;
+            height: 26px;
+            background: white;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: var(--transition-smooth);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .toggle-switch.active::after {
+            left: 31px;
+        }
+
+        .pricing-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 32px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .pricing-card {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-lg);
+            padding: 40px 32px;
+            border: 2px solid var(--border-color);
+            transition: var(--transition-smooth);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .pricing-card:hover {
+            transform: translateY(-8px);
+            box-shadow: var(--shadow-xl);
+            border-color: var(--accent);
+        }
+
+        .pricing-card.featured {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px var(--accent-glow), var(--shadow-lg);
+        }
+
+        .pricing-card.featured::before {
+            content: 'MOST POPULAR';
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 6px 20px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .plan-name {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+
+        .plan-price {
+            font-size: 48px;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .plan-price .currency {
+            font-size: 24px;
+            vertical-align: top;
+        }
+
+        .plan-price .period {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .plan-description {
+            color: var(--text-secondary);
+            margin-bottom: 32px;
+            min-height: 48px;
+        }
+
+        .plan-features {
+            list-style: none;
+            margin-bottom: 32px;
+            flex: 1;
+        }
+
+        .plan-features li {
+            padding: 12px 0;
+            color: var(--text-primary);
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            font-size: 15px;
+        }
+
+        .plan-features li::before {
+            content: '✓';
+            color: var(--accent);
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .plan-features li.disabled {
+            color: var(--text-muted);
+            text-decoration: line-through;
+        }
+
+        .plan-features li.disabled::before {
+            content: '✗';
+            color: var(--text-muted);
+        }
+
+        .plan-cta {
+            width: 100%;
+            padding: 16px;
+            font-size: 16px;
+            font-weight: 700;
+            border-radius: var(--radius-md);
+            border: none;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .plan-cta.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+        }
+
+        .plan-cta.primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 24px rgba(102, 126, 234, 0.5);
+        }
+
+        .plan-cta.secondary {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 2px solid var(--border-color);
+        }
+
+        .plan-cta.secondary:hover {
+            border-color: var(--accent);
+            background: var(--accent-light);
+        }
+
+        .plan-cta.current {
+            background: var(--border-color);
+            color: var(--text-secondary);
+            cursor: not-allowed;
+        }
+
+        .plan-cta.current:hover {
+            transform: none;
+        }
+
+        .faq-section {
+            max-width: 800px;
+            margin: 80px auto 0;
+        }
+
+        .faq-section h2 {
+            text-align: center;
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 40px;
+        }
+
+        .faq-item {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-md);
+            padding: 24px;
+            margin-bottom: 16px;
+            border: 1px solid var(--border-color);
+        }
+
+        .faq-question {
+            font-weight: 600;
+            font-size: 18px;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .faq-answer {
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        @media (max-width: 768px) {
+            .pricing-header h1 {
+                font-size: 36px;
+            }
+
+            .pricing-cards {
+                grid-template-columns: 1fr;
+                gap: 24px;
+            }
+
+            .plan-price {
+                font-size: 40px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="pricing-page">
+        <div class="pricing-header">
+            <h1>Choose Your Plan</h1>
+            <p>Start free, upgrade as you grow. Cancel anytime.</p>
+
+            <div class="billing-toggle">
+                <span id="monthly-label" class="active">Monthly</span>
+                <div class="toggle-switch" id="billing-toggle">
+                    <div class="toggle-knob"></div>
+                </div>
+                <span id="yearly-label">Yearly <span style="color: var(--success); font-size: 14px;">(Save 17%)</span></span>
+            </div>
+        </div>
+
+        <div class="pricing-cards" id="pricing-cards">
+            <!-- Populated by JavaScript -->
+        </div>
+
+        <div class="faq-section">
+            <h2>Frequently Asked Questions</h2>
+
+            <div class="faq-item">
+                <div class="faq-question">Can I change plans later?</div>
+                <div class="faq-answer">Yes! You can upgrade or downgrade your plan at any time. Changes take effect immediately, and we'll prorate the charges.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">What happens if I exceed my limits?</div>
+                <div class="faq-answer">When you hit your daily limit, you'll see a prompt to upgrade. Your access resumes the next day, or you can upgrade instantly for unlimited access.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">Do you offer refunds?</div>
+                <div class="faq-answer">We offer a 7-day money-back guarantee on all paid plans. If you're not satisfied, contact support for a full refund.</div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question">Can I use my own voice with RVC?</div>
+                <div class="faq-answer">Yes! Pro and Enterprise plans include voice cloning with RVC. Upload your .pth model and start creating with your custom voice.</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { ApiClient } from './js/api.js';
+
+        const api = new ApiClient();
+        let billingCycle = 'monthly';
+        let currentPlan = null;
+        let plans = [];
+
+        // Load pricing plans
+        async function loadPlans() {
+            try {
+                const data = await api.request('/api/subscription/plans');
+                plans = data.plans;
+
+                // Get current subscription if logged in
+                try {
+                    const subData = await api.request('/api/subscription/current');
+                    currentPlan = subData.plan_name;
+                } catch (e) {
+                    // Not logged in or no subscription
+                }
+
+                renderPlans();
+            } catch (error) {
+                console.error('Failed to load plans:', error);
+            }
+        }
+
+        function renderPlans() {
+            const container = document.getElementById('pricing-cards');
+
+            container.innerHTML = plans.map(plan => {
+                const price = billingCycle === 'yearly' && plan.price_yearly
+                    ? plan.price_yearly
+                    : plan.price_monthly;
+
+                const isCurrent = currentPlan === plan.name;
+                const isFeatured = plan.name === 'pro';
+
+                return `
+                    <div class="pricing-card ${isFeatured ? 'featured' : ''}">
+                        <div class="plan-name">${plan.display_name}</div>
+                        <div class="plan-price">
+                            ${price === 0 ? 'Free' : `<span class="currency">$</span>${price}<span class="period">/${billingCycle === 'yearly' ? 'yr' : 'mo'}</span>`}
+                        </div>
+                        <div class="plan-description">
+                            ${getDescription(plan)}
+                        </div>
+
+                        <ul class="plan-features">
+                            <li>${plan.max_messages_per_day === 999999 ? 'Unlimited' : plan.max_messages_per_day} messages/day</li>
+                            <li>${plan.max_audio_minutes_per_day === 999999 ? 'Unlimited' : plan.max_audio_minutes_per_day} audio minutes/day</li>
+                            <li>${plan.max_characters === 9999 ? 'Unlimited' : plan.max_characters} AI characters</li>
+                            <li>${plan.max_voice_clones} voice clone${plan.max_voice_clones !== 1 ? 's' : ''}</li>
+                            <li class="${plan.can_use_phone_calls ? '' : 'disabled'}">Phone call support</li>
+                            <li class="${plan.api_access ? '' : 'disabled'}">API access</li>
+                            <li class="${plan.priority_processing ? '' : 'disabled'}">Priority processing</li>
+                        </ul>
+
+                        <button
+                            class="plan-cta ${isCurrent ? 'current' : (isFeatured ? 'primary' : 'secondary')}"
+                            onclick="${isCurrent ? '' : `selectPlan('${plan.id}', '${plan.name}')`}"
+                            ${isCurrent ? 'disabled' : ''}
+                        >
+                            ${isCurrent ? 'Current Plan' : (plan.name === 'free' ? 'Get Started' : 'Upgrade')}
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function getDescription(plan) {
+            const descriptions = {
+                free: 'Perfect for trying out Cognitia',
+                basic: 'For regular users who want more',
+                pro: 'For power users and creators',
+                enterprise: 'Custom solutions for teams'
+            };
+            return descriptions[plan.name] || '';
+        }
+
+        window.selectPlan = async function(planId, planName) {
+            if (planName === 'free') {
+                window.location.href = '/';
+                return;
+            }
+
+            // Check if logged in
+            const token = localStorage.getItem('glados_token');
+            if (!token) {
+                alert('Please log in to upgrade your plan');
+                window.location.href = '/';
+                return;
+            }
+
+            try {
+                // Create checkout session
+                const response = await api.request('/api/payment/checkout', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        plan_id: planId,
+                        billing_cycle: billingCycle
+                    })
+                });
+
+                // Redirect to Stripe checkout
+                window.location.href = response.checkout_url;
+            } catch (error) {
+                console.error('Checkout failed:', error);
+                alert('Failed to start checkout. Please try again.');
+            }
+        };
+
+        // Billing toggle
+        document.getElementById('billing-toggle').addEventListener('click', function() {
+            this.classList.toggle('active');
+            billingCycle = this.classList.contains('active') ? 'yearly' : 'monthly';
+
+            document.getElementById('monthly-label').classList.toggle('active');
+            document.getElementById('yearly-label').classList.toggle('active');
+
+            renderPlans();
+        });
+
+        // Load plans on page load
+        loadPlans();
+    </script>
+</body>
+</html>

@@ -465,6 +465,149 @@ body {
   gap: 4px;
 }
 
+/* Usage Dashboard Widget */
+.usage-widget {
+  margin: 12px 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border-color);
+  transition: var(--transition-smooth);
+}
+
+.usage-widget:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 16px var(--accent-glow);
+}
+
+.usage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.usage-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.usage-plan {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-light);
+  padding: 4px 10px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.usage-stat {
+  margin-bottom: 12px;
+}
+
+.usage-stat:last-of-type {
+  margin-bottom: 0;
+}
+
+.usage-stat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.usage-stat-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.usage-stat-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.usage-progress-bar {
+  height: 6px;
+  background: var(--bg-primary);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.usage-progress-fill {
+  height: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 3px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.usage-progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Progress bar color states */
+.usage-progress-fill.low {
+  background: linear-gradient(135deg, #26de81 0%, #20bf6b 100%);
+}
+
+.usage-progress-fill.medium {
+  background: linear-gradient(135deg, #ffa502 0%, #ff7979 100%);
+}
+
+.usage-progress-fill.high {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+}
+
+.usage-upgrade-btn {
+  width: 100%;
+  margin-top: 16px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.usage-upgrade-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.usage-upgrade-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
 .chat-list-header {
   padding: 12px 16px;
   display: flex;

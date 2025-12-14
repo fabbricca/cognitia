@@ -85,7 +85,44 @@
                     </button>
                 </div>
             </div>
-            
+
+            <!-- Usage Dashboard Widget -->
+            <div id="usage-widget" class="usage-widget hidden">
+                <div class="usage-header">
+                    <span class="usage-title">Today's Usage</span>
+                    <span class="usage-plan" id="usage-plan">Free</span>
+                </div>
+
+                <div class="usage-stat">
+                    <div class="usage-stat-header">
+                        <span class="usage-stat-label">Messages</span>
+                        <span class="usage-stat-value" id="messages-usage">0 / 50</span>
+                    </div>
+                    <div class="usage-progress-bar">
+                        <div class="usage-progress-fill" id="messages-progress" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="usage-stat">
+                    <div class="usage-stat-header">
+                        <span class="usage-stat-label">Audio</span>
+                        <span class="usage-stat-value" id="audio-usage">0 / 10 min</span>
+                    </div>
+                    <div class="usage-progress-bar">
+                        <div class="usage-progress-fill" id="audio-progress" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <button class="usage-upgrade-btn hidden" id="usage-upgrade-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                    Upgrade Plan
+                </button>
+            </div>
+
             <div class="chat-list-header">
                 <div class="search-box">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

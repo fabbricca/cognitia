@@ -235,3 +235,77 @@ class HealthResponse(BaseModel):
     service: str = "cognitia-entrance"
     version: str = "3.0.0"
     core_available: bool = False
+
+
+# ============================================================================
+# Subscription Schemas
+# ============================================================================
+
+class SubscriptionPlanResponse(BaseModel):
+    """Schema for subscription plan response."""
+    id: str
+    name: str
+    display_name: str
+    price_monthly: float
+    price_yearly: Optional[float] = None
+
+    # Limits
+    max_characters: int
+    max_messages_per_day: int
+    max_audio_minutes_per_day: int
+    max_voice_clones: int
+    max_context_messages: int
+
+    # Features
+    can_use_custom_voices: bool
+    can_use_phone_calls: bool
+    can_access_premium_models: bool
+    can_export_conversations: bool
+    priority_processing: bool
+    api_access: bool
+    webhook_support: bool
+
+    class Config:
+        from_attributes = True
+
+
+class UserSubscriptionResponse(BaseModel):
+    """Schema for user's subscription response."""
+    id: str
+    user_id: str
+    plan_id: str
+    plan_name: str
+    plan_display_name: str
+    status: str
+    current_period_start: datetime
+    current_period_end: datetime
+    cancel_at_period_end: bool
+
+    # Convenience fields
+    limits: dict
+    usage: dict
+    features: dict
+
+    class Config:
+        from_attributes = True
+
+
+class UsageResponse(BaseModel):
+    """Schema for usage statistics response."""
+    usage: dict  # {messages, audio_minutes, tokens, date}
+    limits: dict  # {messages, audio_minutes, characters}
+    percentage: dict  # {messages, audio}
+    plan: dict  # {name, display_name}
+    subscription: dict  # {status, current_period_end}
+
+
+class UpgradeRequest(BaseModel):
+    """Schema for subscription upgrade request."""
+    plan_id: UUID
+    billing_cycle: str = Field(..., pattern="^(monthly|yearly)$")
+
+
+class CheckoutSessionResponse(BaseModel):
+    """Schema for Stripe checkout session response."""
+    checkout_url: str
+    session_id: str

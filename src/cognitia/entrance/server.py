@@ -83,6 +83,9 @@ from .schemas import (
     HealthResponse,
     ErrorResponse,
 )
+from .middleware import SubscriptionMiddleware
+from .usage_tracker import usage_tracker
+from . import subscription as subscription_module
 
 
 # Configuration
@@ -101,14 +104,14 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
-    
+
     app = FastAPI(
         title="Cognitia Entrance",
         description="Authentication proxy for Cognitia AI assistant",
         version="3.0.0",
         lifespan=lifespan,
     )
-    
+
     # CORS
     app.add_middleware(
         CORSMiddleware,
@@ -117,7 +120,15 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
+    # Subscription middleware for rate limiting
+    app.add_middleware(SubscriptionMiddleware)
+
+    # Include subscription router
+    app.include_router(subscription_module.router)
+
+    logger.info("✓ Subscription system enabled")
+
     return app
 
 
@@ -807,13 +818,13 @@ async def create_message(
         .where(Chat.id == chat_id, Character.user_id == user_id)
     )
     chat = result.scalar_one_or_none()
-    
+
     if not chat:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Chat not found",
         )
-    
+
     message = Message(
         chat_id=chat_id,
         role=data.role,
@@ -823,7 +834,17 @@ async def create_message(
     session.add(message)
     await session.flush()
     await session.refresh(message)
-    
+
+    # Track usage (fire and forget - don't block response)
+    asyncio.create_task(
+        usage_tracker.record_message(
+            user_id=user_id,
+            chat_id=chat_id,
+            character_id=chat.character_id,
+            tokens=0  # TODO: Track actual tokens when LLM integration is added
+        )
+    )
+
     return MessageResponse.model_validate(message)
 
 

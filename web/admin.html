@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Cognitia</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        /* Admin Dashboard Specific Styles */
+        .admin-page {
+            min-height: 100vh;
+            background: var(--bg-primary);
+            padding: 40px 20px;
+        }
+
+        .admin-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .admin-header h1 {
+            font-size: 42px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .admin-header p {
+            color: var(--text-secondary);
+            font-size: 16px;
+        }
+
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            border: 2px solid var(--border-color);
+            transition: var(--transition-smooth);
+        }
+
+        .stat-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .stat-subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .stat-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+
+        .stat-badge.success {
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+        }
+
+        .stat-badge.warning {
+            background: rgba(245, 158, 11, 0.1);
+            color: #f59e0b;
+        }
+
+        .section {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-lg);
+            padding: 32px;
+            border: 2px solid var(--border-color);
+            margin-bottom: 32px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .section-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .search-bar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 12px 16px;
+            background: var(--bg-primary);
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-size: 14px;
+            transition: var(--transition-smooth);
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .filter-select {
+            padding: 12px 16px;
+            background: var(--bg-primary);
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-size: 14px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .filter-select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .users-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .users-table th {
+            text-align: left;
+            padding: 16px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .users-table td {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .users-table tr:hover {
+            background: var(--bg-primary);
+            cursor: pointer;
+        }
+
+        .plan-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .plan-badge.free {
+            background: rgba(107, 114, 128, 0.1);
+            color: #6b7280;
+        }
+
+        .plan-badge.basic {
+            background: rgba(59, 130, 246, 0.1);
+            color: #3b82f6;
+        }
+
+        .plan-badge.pro {
+            background: rgba(139, 92, 246, 0.1);
+            color: #8b5cf6;
+        }
+
+        .plan-badge.enterprise {
+            background: rgba(236, 72, 153, 0.1);
+            color: #ec4899;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-badge.active {
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+        }
+
+        .status-badge.canceled {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .pagination button {
+            padding: 8px 16px;
+            background: var(--bg-primary);
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .pagination button:hover:not(:disabled) {
+            border-color: var(--accent);
+            background: var(--accent-light);
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination-info {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .chart-container {
+            height: 300px;
+            margin-top: 24px;
+        }
+
+        .plan-distribution {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .plan-stat {
+            text-align: center;
+            padding: 16px;
+            background: var(--bg-primary);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+        }
+
+        .plan-stat-value {
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .plan-stat-label {
+            font-size: 13px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 24px rgba(102, 126, 234, 0.4);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-lg);
+            padding: 32px;
+            max-width: 600px;
+            width: 90%;
+            border: 2px solid var(--border-color);
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .modal-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 28px;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-primary);
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-size: 14px;
+            transition: var(--transition-smooth);
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .info-value {
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+        }
+
+        .error {
+            padding: 16px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            border-radius: var(--radius-md);
+            color: #ef4444;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .admin-header h1 {
+                font-size: 32px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .users-table {
+                font-size: 13px;
+            }
+
+            .users-table th,
+            .users-table td {
+                padding: 12px 8px;
+            }
+
+            .section {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-page">
+        <div class="admin-header">
+            <h1>Admin Dashboard</h1>
+            <p>Platform Analytics & User Management</p>
+        </div>
+
+        <div class="dashboard-container">
+            <!-- Analytics Stats -->
+            <div class="stats-grid" id="stats-grid">
+                <div class="loading">Loading analytics...</div>
+            </div>
+
+            <!-- Plan Distribution -->
+            <div class="section">
+                <div class="section-header">
+                    <h2 class="section-title">User Distribution by Plan</h2>
+                </div>
+                <div class="plan-distribution" id="plan-distribution">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Revenue Chart -->
+            <div class="section">
+                <div class="section-header">
+                    <h2 class="section-title">Monthly Revenue</h2>
+                </div>
+                <div class="chart-container">
+                    <canvas id="revenue-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- User Management -->
+            <div class="section">
+                <div class="section-header">
+                    <h2 class="section-title">User Management</h2>
+                </div>
+
+                <div class="search-bar">
+                    <input
+                        type="text"
+                        class="search-input"
+                        id="user-search"
+                        placeholder="Search by email..."
+                    >
+                    <select class="filter-select" id="plan-filter">
+                        <option value="">All Plans</option>
+                        <option value="free">Free</option>
+                        <option value="basic">Basic</option>
+                        <option value="pro">Pro</option>
+                        <option value="enterprise">Enterprise</option>
+                    </select>
+                </div>
+
+                <div id="users-table-container">
+                    <div class="loading">Loading users...</div>
+                </div>
+
+                <div class="pagination" id="pagination">
+                    <button id="prev-btn" disabled>Previous</button>
+                    <span class="pagination-info" id="pagination-info">Page 1</span>
+                    <button id="next-btn">Next</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Details Modal -->
+    <div class="modal" id="user-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">User Details</h3>
+                <button class="modal-close" onclick="closeUserModal()">&times;</button>
+            </div>
+            <div id="user-details-content">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script type="module">
+        import { ApiClient } from './js/api.js';
+
+        const api = new ApiClient();
+        let currentPage = 0;
+        let currentFilter = '';
+        let currentSearch = '';
+        const pageSize = 50;
+
+        // Check admin access
+        async function checkAdminAccess() {
+            try {
+                const token = localStorage.getItem('glados_token');
+                if (!token) {
+                    window.location.href = '/';
+                    return false;
+                }
+                return true;
+            } catch (error) {
+                window.location.href = '/';
+                return false;
+            }
+        }
+
+        // Load analytics
+        async function loadAnalytics() {
+            try {
+                const data = await api.request('/api/admin/analytics');
+
+                // Render stats
+                const statsGrid = document.getElementById('stats-grid');
+                statsGrid.innerHTML = `
+                    <div class="stat-card">
+                        <div class="stat-label">Total Users</div>
+                        <div class="stat-value">${data.users.total.toLocaleString()}</div>
+                        <div class="stat-subtitle">
+                            <span class="stat-badge success">+${data.users.new_this_month} this month</span>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-label">MRR</div>
+                        <div class="stat-value">$${data.revenue.mrr.toLocaleString()}</div>
+                        <div class="stat-subtitle">Monthly Recurring Revenue</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-label">Total Revenue</div>
+                        <div class="stat-value">$${data.revenue.total.toLocaleString()}</div>
+                        <div class="stat-subtitle">All-time earnings</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-label">Conversion Rate</div>
+                        <div class="stat-value">${data.conversion.free_to_paid}%</div>
+                        <div class="stat-subtitle">Free to Paid</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-label">Messages Today</div>
+                        <div class="stat-value">${data.usage.messages_today.toLocaleString()}</div>
+                        <div class="stat-subtitle">${data.usage.tokens_today.toLocaleString()} tokens</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-label">Audio Today</div>
+                        <div class="stat-value">${data.usage.audio_minutes_today.toFixed(1)}</div>
+                        <div class="stat-subtitle">Minutes generated</div>
+                    </div>
+                `;
+
+                // Render plan distribution
+                const planDist = document.getElementById('plan-distribution');
+                const planStats = Object.entries(data.users.by_plan).map(([name, info]) => `
+                    <div class="plan-stat">
+                        <div class="plan-stat-value">${info.count}</div>
+                        <div class="plan-stat-label">${info.display_name}</div>
+                    </div>
+                `).join('');
+                planDist.innerHTML = planStats;
+
+            } catch (error) {
+                console.error('Failed to load analytics:', error);
+                document.getElementById('stats-grid').innerHTML =
+                    '<div class="error">Failed to load analytics. Please ensure you have admin access.</div>';
+            }
+        }
+
+        // Load revenue chart
+        async function loadRevenueChart() {
+            try {
+                const data = await api.request('/api/admin/revenue/monthly?months=12');
+
+                const ctx = document.getElementById('revenue-chart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.data.map(d => d.month),
+                        datasets: [{
+                            label: 'Monthly Revenue',
+                            data: data.data.map(d => d.revenue),
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return '$' + value.toLocaleString();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to load revenue chart:', error);
+            }
+        }
+
+        // Load users
+        async function loadUsers() {
+            try {
+                const offset = currentPage * pageSize;
+                let url = `/api/admin/users?limit=${pageSize}&offset=${offset}`;
+
+                if (currentFilter) {
+                    url += `&plan=${currentFilter}`;
+                }
+                if (currentSearch) {
+                    url += `&search=${encodeURIComponent(currentSearch)}`;
+                }
+
+                const data = await api.request(url);
+
+                // Render table
+                const container = document.getElementById('users-table-container');
+                if (data.users.length === 0) {
+                    container.innerHTML = '<div class="loading">No users found</div>';
+                    return;
+                }
+
+                container.innerHTML = `
+                    <table class="users-table">
+                        <thead>
+                            <tr>
+                                <th>Email</th>
+                                <th>Plan</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th>Last Active</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.users.map(user => `
+                                <tr onclick="showUserDetails('${user.id}')">
+                                    <td>${user.email}</td>
+                                    <td>
+                                        <span class="plan-badge ${user.subscription?.plan_name || 'free'}">
+                                            ${user.subscription?.plan_name || 'free'}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="status-badge ${user.subscription?.status || 'active'}">
+                                            ${user.subscription?.status || 'active'}
+                                        </span>
+                                    </td>
+                                    <td>${new Date(user.created_at).toLocaleDateString()}</td>
+                                    <td>${user.last_active_at ? new Date(user.last_active_at).toLocaleDateString() : 'Never'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+
+                // Update pagination
+                const totalPages = Math.ceil(data.total / pageSize);
+                document.getElementById('pagination-info').textContent =
+                    `Page ${currentPage + 1} of ${totalPages} (${data.total} total)`;
+                document.getElementById('prev-btn').disabled = currentPage === 0;
+                document.getElementById('next-btn').disabled = currentPage >= totalPages - 1;
+
+            } catch (error) {
+                console.error('Failed to load users:', error);
+                document.getElementById('users-table-container').innerHTML =
+                    '<div class="error">Failed to load users</div>';
+            }
+        }
+
+        // Show user details
+        window.showUserDetails = async function(userId) {
+            const modal = document.getElementById('user-modal');
+            const content = document.getElementById('user-details-content');
+
+            modal.classList.add('active');
+            content.innerHTML = '<div class="loading">Loading...</div>';
+
+            try {
+                const user = await api.request(`/api/admin/users/${userId}`);
+
+                content.innerHTML = `
+                    <div class="info-row">
+                        <span class="info-label">Email</span>
+                        <span class="info-value">${user.email}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">User ID</span>
+                        <span class="info-value">${user.id}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Current Plan</span>
+                        <span class="info-value">
+                            <span class="plan-badge ${user.subscription?.plan || 'free'}">
+                                ${user.subscription?.plan || 'free'}
+                            </span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Status</span>
+                        <span class="info-value">
+                            <span class="status-badge ${user.subscription?.status || 'active'}">
+                                ${user.subscription?.status || 'active'}
+                            </span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Messages This Month</span>
+                        <span class="info-value">${user.usage.messages_this_month}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Audio This Month</span>
+                        <span class="info-value">${user.usage.audio_minutes_this_month.toFixed(1)} min</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Characters Created</span>
+                        <span class="info-value">${user.usage.characters_created}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Total Payments</span>
+                        <span class="info-value">$${user.payments.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}</span>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 24px;">
+                        <label class="form-label">Update Subscription</label>
+                        <select class="form-select" id="new-plan-select">
+                            <option value="">Select new plan...</option>
+                            <option value="free">Free</option>
+                            <option value="basic">Basic</option>
+                            <option value="pro">Pro</option>
+                            <option value="enterprise">Enterprise</option>
+                        </select>
+                    </div>
+                    <button class="btn-primary" style="width: 100%;" onclick="updateUserPlan('${user.id}')">
+                        Update Plan
+                    </button>
+                `;
+            } catch (error) {
+                console.error('Failed to load user details:', error);
+                content.innerHTML = '<div class="error">Failed to load user details</div>';
+            }
+        };
+
+        // Update user plan
+        window.updateUserPlan = async function(userId) {
+            const planName = document.getElementById('new-plan-select').value;
+            if (!planName) {
+                alert('Please select a plan');
+                return;
+            }
+
+            try {
+                await api.request(`/api/admin/users/${userId}/subscription?plan_name=${planName}`, {
+                    method: 'PUT'
+                });
+                alert('Subscription updated successfully');
+                closeUserModal();
+                loadUsers();
+            } catch (error) {
+                console.error('Failed to update subscription:', error);
+                alert('Failed to update subscription');
+            }
+        };
+
+        // Close modal
+        window.closeUserModal = function() {
+            document.getElementById('user-modal').classList.remove('active');
+        };
+
+        // Event listeners
+        document.getElementById('user-search').addEventListener('input', (e) => {
+            currentSearch = e.target.value;
+            currentPage = 0;
+            loadUsers();
+        });
+
+        document.getElementById('plan-filter').addEventListener('change', (e) => {
+            currentFilter = e.target.value;
+            currentPage = 0;
+            loadUsers();
+        });
+
+        document.getElementById('prev-btn').addEventListener('click', () => {
+            if (currentPage > 0) {
+                currentPage--;
+                loadUsers();
+            }
+        });
+
+        document.getElementById('next-btn').addEventListener('click', () => {
+            currentPage++;
+            loadUsers();
+        });
+
+        // Close modal on outside click
+        document.getElementById('user-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'user-modal') {
+                closeUserModal();
+            }
+        });
+
+        // Initialize
+        if (await checkAdminAccess()) {
+            loadAnalytics();
+            loadRevenueChart();
+            loadUsers();
+        }
+    </script>
+</body>
+</html>

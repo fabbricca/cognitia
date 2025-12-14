@@ -93,6 +93,15 @@ class CognitiaApp {
             chatList: document.getElementById('chat-list'),
             newChatBtn: document.getElementById('new-chat-btn'),
 
+            // Usage widget
+            usageWidget: document.getElementById('usage-widget'),
+            usagePlan: document.getElementById('usage-plan'),
+            messagesUsage: document.getElementById('messages-usage'),
+            messagesProgress: document.getElementById('messages-progress'),
+            audioUsage: document.getElementById('audio-usage'),
+            audioProgress: document.getElementById('audio-progress'),
+            usageUpgradeBtn: document.getElementById('usage-upgrade-btn'),
+
             // Chat area
             chatArea: document.getElementById('chat-area'),
             emptyState: document.getElementById('empty-state'),
@@ -263,6 +272,13 @@ class CognitiaApp {
         
         // Search input
         this.elements.searchInput.addEventListener('input', (e) => this.filterChats(e.target.value));
+
+        // Usage upgrade button
+        if (this.elements.usageUpgradeBtn) {
+            this.elements.usageUpgradeBtn.addEventListener('click', () => {
+                window.location.href = '/pricing.html';
+            });
+        }
 
         // Call
         this.elements.callBtn.addEventListener('click', () => this.toggleCall());
@@ -439,6 +455,7 @@ class CognitiaApp {
         // Load data
         await this.loadChats();
         await this.loadCharacters();
+        await this.loadUsage();
     }
     
     updateUserUI() {
@@ -539,6 +556,61 @@ class CognitiaApp {
         } catch (error) {
             console.error('Failed to load characters:', error);
             this.characters = [];
+        }
+    }
+
+    async loadUsage() {
+        try {
+            const usage = await api.request('/api/subscription/usage');
+
+            // Show widget
+            this.elements.usageWidget.classList.remove('hidden');
+
+            // Update plan name
+            this.elements.usagePlan.textContent = usage.plan.display_name;
+
+            // Update messages
+            const messagesUsed = usage.usage.messages;
+            const messagesLimit = usage.limits.messages;
+            const messagesPercent = usage.percentage.messages;
+            this.elements.messagesUsage.textContent = `${messagesUsed} / ${messagesLimit}`;
+            this.elements.messagesProgress.style.width = `${Math.min(messagesPercent, 100)}%`;
+
+            // Update audio
+            const audioUsed = usage.usage.audio_minutes.toFixed(1);
+            const audioLimit = usage.limits.audio_minutes;
+            const audioPercent = usage.percentage.audio;
+            this.elements.audioUsage.textContent = `${audioUsed} / ${audioLimit} min`;
+            this.elements.audioProgress.style.width = `${Math.min(audioPercent, 100)}%`;
+
+            // Color code progress bars
+            this.updateProgressColor(this.elements.messagesProgress, messagesPercent);
+            this.updateProgressColor(this.elements.audioProgress, audioPercent);
+
+            // Show upgrade button if approaching limit
+            if (messagesPercent >= 80 || audioPercent >= 80) {
+                this.elements.usageUpgradeBtn.classList.remove('hidden');
+            } else {
+                this.elements.usageUpgradeBtn.classList.add('hidden');
+            }
+        } catch (error) {
+            console.error('Failed to load usage:', error);
+            // Hide widget on error (user might not have subscription)
+            this.elements.usageWidget.classList.add('hidden');
+        }
+    }
+
+    updateProgressColor(progressBar, percentage) {
+        // Remove all color classes
+        progressBar.classList.remove('low', 'medium', 'high');
+
+        // Add appropriate color class
+        if (percentage < 50) {
+            progressBar.classList.add('low');
+        } else if (percentage < 80) {
+            progressBar.classList.add('medium');
+        } else {
+            progressBar.classList.add('high');
         }
     }
 
@@ -855,6 +927,8 @@ class CognitiaApp {
         // Save to database
         try {
             await api.createMessage(this.currentChat.id, text, 'user');
+            // Refresh usage after sending message
+            this.loadUsage().catch(err => console.error('Failed to refresh usage:', err));
         } catch (error) {
             console.error('Failed to save message:', error);
         }
