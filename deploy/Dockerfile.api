@@ -44,8 +44,11 @@ COPY src/cognitia/entrance ./cognitia/entrance
 # Copy web frontend
 COPY web ./web
 
-# Create data and avatars directories with correct permissions
-RUN mkdir -p /app/data /app/web/avatars && \
+# Fix permissions on all copied files and create data directories
+RUN chmod -R a+r /app/cognitia /app/web && \
+    find /app/cognitia -type d -exec chmod a+rx {} \; && \
+    find /app/web -type d -exec chmod a+rx {} \; && \
+    mkdir -p /app/data /app/web/avatars && \
     chown -R cognitia:cognitia /app/data /app/web/avatars
 
 # Set environment variables
