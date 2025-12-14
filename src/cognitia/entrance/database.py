@@ -15,7 +15,8 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    ARRAY,
+    TypeDecorator,
+    CHAR,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -31,6 +32,41 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "sqlite+aiosqlite:///./data/cognitia.db"
 )
+
+# Check if using PostgreSQL
+IS_POSTGRES = DATABASE_URL.startswith("postgresql")
+
+
+class GUID(TypeDecorator):
+    """Platform-independent GUID type.
+    
+    Uses PostgreSQL's UUID type when available, otherwise uses CHAR(36).
+    """
+    impl = CHAR
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(GUID())
+        else:
+            return dialect.type_descriptor(CHAR(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            if dialect.name == 'postgresql':
+                return value
+            else:
+                if isinstance(value, UUID):
+                    return str(value)
+                return value
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            if not isinstance(value, UUID):
+                return UUID(value)
+        return value
+
 
 # Create async engine
 if DATABASE_URL.startswith("sqlite"):
@@ -55,7 +91,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+        GUID(), primary_key=True, default=uuid4
     )
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -66,7 +102,7 @@ class User(Base):
     last_active_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     referral_code: Mapped[Optional[str]] = mapped_column(String(20), unique=True, nullable=True)
     referred_by: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+        GUID(), ForeignKey("users.id"), nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -91,10 +127,10 @@ class Character(Base):
     __tablename__ = "characters"
     
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+        GUID(), primary_key=True, default=uuid4
     )
     user_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+        GUID(), ForeignKey("users.id", ondelete="CASCADE")
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -131,10 +167,10 @@ class Chat(Base):
     __tablename__ = "chats"
     
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+        GUID(), primary_key=True, default=uuid4
     )
     character_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("characters.id", ondelete="CASCADE")
+        GUID(), ForeignKey("characters.id", ondelete="CASCADE")
     )
     title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -158,10 +194,10 @@ class Message(Base):
     __tablename__ = "messages"
 
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+        GUID(), primary_key=True, default=uuid4
     )
     chat_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("chats.id", ondelete="CASCADE")
+        GUID(), ForeignKey("chats.id", ondelete="CASCADE")
     )
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # 'user' or 'assistant'
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -180,7 +216,7 @@ class SubscriptionPlan(Base):
     __tablename__ = "subscription_plans"
 
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+        GUID(), primary_key=True, default=uuid4
     )
     name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -229,14 +265,14 @@ class UserSubscription(Base):
     __tablename__ = "user_subscriptions"
 
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+        GUID(), primary_key=True, default=uuid4
     )
     user_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"),
         unique=True, nullable=False
     )
     plan_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("subscription_plans.id"), nullable=False
+        GUID(), ForeignKey("subscription_plans.id"), nullable=False
     )
 
     # Subscription Status
@@ -273,7 +309,7 @@ class DailyUsageCache(Base):
     __tablename__ = "daily_usage_cache"
 
     user_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True
     )
     date: Mapped[datetime] = mapped_column(Date, primary_key=True)
@@ -295,10 +331,10 @@ class UsageRecord(Base):
     __tablename__ = "usage_records"
 
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+        GUID(), primary_key=True, default=uuid4
     )
     user_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
 
     # Usage Type
@@ -311,10 +347,10 @@ class UsageRecord(Base):
 
     # Context
     character_id: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("characters.id", ondelete="SET NULL"), nullable=True
+        GUID(), ForeignKey("characters.id", ondelete="SET NULL"), nullable=True
     )
     chat_id: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("chats.id", ondelete="SET NULL"), nullable=True
+        GUID(), ForeignKey("chats.id", ondelete="SET NULL"), nullable=True
     )
 
     # Cost Tracking (for internal analytics)
@@ -330,13 +366,13 @@ class PaymentTransaction(Base):
     __tablename__ = "payment_transactions"
 
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+        GUID(), primary_key=True, default=uuid4
     )
     user_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     subscription_id: Mapped[Optional[UUID]] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("user_subscriptions.id"), nullable=True
+        GUID(), ForeignKey("user_subscriptions.id"), nullable=True
     )
 
     # Transaction Details
