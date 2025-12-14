@@ -8,9 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from .auth import get_current_user
+from .auth import get_current_user, TokenPayload
 from .database import (
-    User,
     SubscriptionPlan,
     UserSubscription,
     Character,
@@ -68,15 +67,16 @@ async def get_plans(session=Depends(get_session_dep)):
 
 @router.get("/current", response_model=UserSubscriptionResponse)
 async def get_current_subscription(
-    current_user: User = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     session=Depends(get_session_dep)
 ):
     """Get user's current subscription details."""
+    user_id = UUID(current_user.sub)
 
     result = await session.execute(
         select(UserSubscription)
         .options(selectinload(UserSubscription.plan))
-        .where(UserSubscription.user_id == current_user.id)
+        .where(UserSubscription.user_id == user_id)
     )
     subscription = result.scalar_one_or_none()
 
@@ -90,7 +90,7 @@ async def get_current_subscription(
 
     # Get character count
     char_result = await session.execute(
-        select(Character).where(Character.user_id == current_user.id)
+        select(Character).where(Character.user_id == user_id)
     )
     character_count = len(char_result.scalars().all())
 
@@ -127,14 +127,15 @@ async def get_current_subscription(
 
 @router.get("/usage", response_model=UsageResponse)
 async def get_usage_stats(
-    current_user: User = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
     """
     Get user's current usage statistics with limits.
 
     Returns today's usage along with subscription limits and percentages.
     """
-    usage_data = await usage_tracker.get_usage_with_limits(current_user.id)
+    user_id = UUID(current_user.sub)
+    usage_data = await usage_tracker.get_usage_with_limits(user_id)
 
     if "error" in usage_data:
         raise HTTPException(
@@ -149,7 +150,7 @@ async def get_usage_stats(
 async def get_monthly_usage(
     year: int,
     month: int,
-    current_user: User = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
     """
     Get user's usage for a specific month.
@@ -163,14 +164,14 @@ async def get_monthly_usage(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Month must be between 1 and 12"
         )
-
-    monthly_data = await usage_tracker.get_monthly_usage(current_user.id, year, month)
+    user_id = UUID(current_user.sub)
+    monthly_data = await usage_tracker.get_monthly_usage(user_id, year, month)
     return monthly_data
 
 
 @router.post("/cancel")
 async def cancel_subscription(
-    current_user: User = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     session=Depends(get_session_dep)
 ):
     """
@@ -178,8 +179,9 @@ async def cancel_subscription(
 
     The subscription will remain active until current_period_end.
     """
+    user_id = UUID(current_user.sub)
     result = await session.execute(
-        select(UserSubscription).where(UserSubscription.user_id == current_user.id)
+        select(UserSubscription).where(UserSubscription.user_id == user_id)
     )
     subscription = result.scalar_one_or_none()
 
@@ -199,7 +201,7 @@ async def cancel_subscription(
     subscription.cancel_at_period_end = True
     await session.commit()
 
-    logger.info(f"User {current_user.id} cancelled subscription {subscription.id}")
+    logger.info(f"User {user_id} cancelled subscription {subscription.id}")
 
     return {
         "message": "Subscription will be cancelled at the end of the billing period",
@@ -209,7 +211,7 @@ async def cancel_subscription(
 
 @router.post("/reactivate")
 async def reactivate_subscription(
-    current_user: User = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     session=Depends(get_session_dep)
 ):
     """
@@ -217,8 +219,9 @@ async def reactivate_subscription(
 
     Only works if subscription is still active but marked for cancellation.
     """
+    user_id = UUID(current_user.sub)
     result = await session.execute(
-        select(UserSubscription).where(UserSubscription.user_id == current_user.id)
+        select(UserSubscription).where(UserSubscription.user_id == user_id)
     )
     subscription = result.scalar_one_or_none()
 
@@ -238,7 +241,7 @@ async def reactivate_subscription(
     subscription.cancel_at_period_end = False
     await session.commit()
 
-    logger.info(f"User {current_user.id} reactivated subscription {subscription.id}")
+    logger.info(f"User {user_id} reactivated subscription {subscription.id}")
 
     return {
         "message": "Subscription has been reactivated",
