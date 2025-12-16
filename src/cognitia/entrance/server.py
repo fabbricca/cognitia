@@ -58,7 +58,7 @@ from .database import (
     Chat,
     Message,
 )
-from .schemas import (
+from .schemas_v1 import (
     UserCreate,
     UserLogin,
     UserResponse,
@@ -86,6 +86,7 @@ from .schemas import (
 from .middleware import SubscriptionMiddleware
 from .usage_tracker import usage_tracker
 from . import subscription as subscription_module
+from .api.v2 import auth_router, users_router, characters_router, chats_router
 
 
 # Configuration
@@ -127,7 +128,14 @@ def create_app() -> FastAPI:
     # Include subscription router
     app.include_router(subscription_module.router)
 
+    # Include API v2 routers
+    app.include_router(auth_router, prefix="/api/v2")
+    app.include_router(users_router, prefix="/api/v2")
+    app.include_router(characters_router, prefix="/api/v2")
+    app.include_router(chats_router, prefix="/api/v2")
+
     logger.info("✓ Subscription system enabled")
+    logger.info("✓ API v2 endpoints enabled")
 
     return app
 

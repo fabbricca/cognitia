@@ -500,6 +500,132 @@ Subject: {subject}
 
         return await EmailService.send_email(ADMIN_EMAIL, subject, html)
 
+    @staticmethod
+    async def send_verification_email(
+        to_email: str,
+        user_name: str,
+        verification_token: str
+    ) -> bool:
+        """Send email verification link."""
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8000")
+        verification_url = f"{frontend_url}/verify-email?token={verification_token}"
+
+        subject = "Cognitia: Verify Your Email"
+
+        html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #1a1d1f; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 12px 12px 0 0; }}
+        .content {{ background: #ffffff; padding: 30px; border: 1px solid #e4e9f2; border-radius: 0 0 12px 12px; }}
+        .btn {{ display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 16px 0; }}
+        .code-box {{ background: #f7f9fc; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 18px; text-align: center; margin: 20px 0; letter-spacing: 2px; }}
+        .footer {{ text-align: center; color: #6f767e; font-size: 13px; margin-top: 30px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Welcome to Cognitia! 🎉</h1>
+        </div>
+        <div class="content">
+            <p>Hi {user_name},</p>
+
+            <p>Thank you for signing up! Please verify your email address to activate your account.</p>
+
+            <a href="{verification_url}" class="btn">Verify Email Address</a>
+
+            <p style="margin-top: 30px; color: #6f767e; font-size: 14px;">
+                Or copy and paste this link into your browser:
+                <br><a href="{verification_url}" style="color: #667eea; word-break: break-all;">{verification_url}</a>
+            </p>
+
+            <p style="margin-top: 30px; color: #6f767e; font-size: 14px;">
+                This verification link will expire in 24 hours.
+            </p>
+
+            <p style="margin-top: 20px; color: #6f767e; font-size: 14px;">
+                If you didn't create a Cognitia account, you can safely ignore this email.
+            </p>
+        </div>
+        <div class="footer">
+            <p>© 2025 Cognitia. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+        """
+
+        return await EmailService.send_email(to_email, subject, html)
+
+    @staticmethod
+    async def send_password_reset_email(
+        to_email: str,
+        user_name: str,
+        reset_token: str
+    ) -> bool:
+        """Send password reset link."""
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8000")
+        reset_url = f"{frontend_url}/reset-password?token={reset_token}"
+
+        subject = "Cognitia: Reset Your Password"
+
+        html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #1a1d1f; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 12px 12px 0 0; }}
+        .content {{ background: #ffffff; padding: 30px; border: 1px solid #e4e9f2; border-radius: 0 0 12px 12px; }}
+        .btn {{ display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 16px 0; }}
+        .warning-box {{ background: #fbbf2415; border-left: 4px solid #fbbf24; padding: 16px; margin: 20px 0; border-radius: 8px; }}
+        .footer {{ text-align: center; color: #6f767e; font-size: 13px; margin-top: 30px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Password Reset Request</h1>
+        </div>
+        <div class="content">
+            <p>Hi {user_name},</p>
+
+            <p>We received a request to reset your Cognitia password. Click the button below to create a new password:</p>
+
+            <a href="{reset_url}" class="btn">Reset Password</a>
+
+            <p style="margin-top: 30px; color: #6f767e; font-size: 14px;">
+                Or copy and paste this link into your browser:
+                <br><a href="{reset_url}" style="color: #667eea; word-break: break-all;">{reset_url}</a>
+            </p>
+
+            <div class="warning-box">
+                <strong>Security Notice:</strong> This password reset link will expire in 1 hour.
+            </div>
+
+            <p style="color: #6f767e; font-size: 14px;">
+                If you didn't request a password reset, please ignore this email. Your password will remain unchanged.
+            </p>
+
+            <p style="margin-top: 20px; color: #6f767e; font-size: 14px;">
+                For security reasons, never share this link with anyone.
+            </p>
+        </div>
+        <div class="footer">
+            <p>© 2025 Cognitia. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+        """
+
+        return await EmailService.send_email(to_email, subject, html)
+
 
 # Singleton instance
 email_service = EmailService()

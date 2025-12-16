@@ -1,0 +1,121 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database (matches K8s deployment)
+  postgres:
+    image: postgres:15-alpine
+    container_name: cognitia-postgres-dev
+    environment:
+      POSTGRES_USER: cognitia
+      POSTGRES_PASSWORD: dev_password
+      POSTGRES_DB: cognitia
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cognitia"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis (for Celery broker/backend)
+  redis:
+    image: redis:7-alpine
+    container_name: cognitia-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Cognitia API (Entrance server)
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    container_name: cognitia-api-dev
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://cognitia:dev_password@postgres:5432/cognitia
+      - REDIS_URL=redis://redis:6379/0
+      - CORE_WS_URL=ws://core:8001/ws
+      - JWT_SECRET=dev_secret_change_in_production
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - EMAIL_FROM=noreply@cognitia.iberu.me
+    volumes:
+      # Mount source code for hot-reload during development
+      - ./src:/app/src
+      - ./web:/app/web
+      - ./avatars:/app/avatars
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn cognitia.entrance.server:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker (background tasks)
+  celery-worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    container_name: cognitia-celery-worker-dev
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://cognitia:dev_password@postgres:5432/cognitia
+      - REDIS_URL=redis://redis:6379/0
+      - EMAIL_FROM=noreply@cognitia.iberu.me
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: celery -A cognitia.entrance.tasks.celery_app worker --loglevel=info
+
+  # Celery Beat (scheduled tasks)
+  celery-beat:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    container_name: cognitia-celery-beat-dev
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A cognitia.entrance.tasks.celery_app beat --loglevel=info
+
+  # Core GPU Server (LLM processing) - if testing locally
+  # core:
+  #   build:
+  #     context: .
+  #     dockerfile: deploy/Dockerfile.core
+  #   container_name: cognitia-core-dev
+  #   ports:
+  #     - "8001:8001"
+  #   volumes:
+  #     - ./models:/app/models
+  #     - ./src:/app/src
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   command: uvicorn cognitia.core.server:app --host 0.0.0.0 --port 8001
+
+volumes:
+  postgres_data:
+  redis_data:

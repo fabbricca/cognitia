@@ -18,7 +18,7 @@ from sqlalchemy import (
     TypeDecorator,
     CHAR,
 )
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, ARRAY, JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -97,6 +97,13 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     avatar_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
+    # v2: User profile fields
+    first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    birthday: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
+    role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     # Subscription-related fields
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     last_active_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -151,6 +158,14 @@ class Character(Base):
         String(255), nullable=True
     )
     avatar_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # v2: Public character marketplace fields
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    tags: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY(String) if IS_POSTGRES else Text, nullable=True
+    )
+    category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow
     )
@@ -167,16 +182,25 @@ class Character(Base):
 
 class Chat(Base):
     """Chat session model."""
-    
+
     __tablename__ = "chats"
-    
+
     id: Mapped[UUID] = mapped_column(
         GUID(), primary_key=True, default=uuid4
     )
-    character_id: Mapped[UUID] = mapped_column(
-        GUID(), ForeignKey("characters.id", ondelete="CASCADE")
+    # v1 field kept for backward compatibility
+    character_id: Mapped[Optional[UUID]] = mapped_column(
+        GUID(), ForeignKey("characters.id", ondelete="CASCADE"), nullable=True
     )
     title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # v2: Group chat support
+    is_group: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    max_participants: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    created_by: Mapped[Optional[UUID]] = mapped_column(
+        GUID(), ForeignKey("users.id"), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow
     )
@@ -206,6 +230,19 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # 'user' or 'assistant'
     content: Mapped[str] = mapped_column(Text, nullable=False)
     audio_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # v2: Support for multiple message types and senders
+    sender_id: Mapped[Optional[UUID]] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    character_id: Mapped[Optional[UUID]] = mapped_column(
+        GUID(), ForeignKey("characters.id", ondelete="SET NULL"), nullable=True
+    )
+    message_type: Mapped[str] = mapped_column(String(20), default="text", nullable=False)
+    attachments: Mapped[Optional[dict]] = mapped_column(
+        JSONB if IS_POSTGRES else Text, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow
     )
@@ -226,6 +263,9 @@ class SubscriptionPlan(Base):
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     price_monthly: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     price_yearly: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
+
+    # v2: Trial support
+    trial_days: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Feature Limits
     max_characters: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -390,6 +430,138 @@ class PaymentTransaction(Base):
 
     # Metadata
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================================
+# v2: NEW TABLES FOR EMAIL VERIFICATION, PASSWORD RESET, AND VOICE ACCESS
+# ============================================================================
+
+class EmailVerification(Base):
+    """Email verification tokens (24h expiry)."""
+
+    __tablename__ = "email_verifications"
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True, nullable=False
+    )
+    token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PasswordReset(Base):
+    """Password reset tokens (1h expiry)."""
+
+    __tablename__ = "password_resets"
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CharacterVoicePermission(Base):
+    """Voice model access permissions (prevents public character voice cloning)."""
+
+    __tablename__ = "character_voice_permissions"
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    character_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("characters.id", ondelete="CASCADE"), nullable=False
+    )
+    allowed_user_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    granted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================================
+# v2: GROUP CHAT SUPPORT
+# ============================================================================
+
+class ChatParticipant(Base):
+    """Chat participants (many-to-many: chats ↔ users)."""
+
+    __tablename__ = "chat_participants"
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    chat_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("chats.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_read_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class ChatCharacter(Base):
+    """Chat characters (many-to-many: chats ↔ characters)."""
+
+    __tablename__ = "chat_characters"
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    chat_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("chats.id", ondelete="CASCADE"), nullable=False
+    )
+    character_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("characters.id", ondelete="CASCADE"), nullable=False
+    )
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================================
+# v2: MARKET METRICS FOR ANALYTICS
+# ============================================================================
+
+class MarketMetricsHourly(Base):
+    """Hourly market metrics (keep 1 year, then aggregate to daily)."""
+
+    __tablename__ = "market_metrics_hourly"
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, unique=True, nullable=False)
+
+    total_users: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    active_users: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    new_signups: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_messages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_audio_minutes: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
+    total_revenue_usd: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
+
+    active_subscriptions_by_plan: Mapped[Optional[dict]] = mapped_column(
+        JSONB if IS_POSTGRES else Text, nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class MarketMetricsDaily(Base):
+    """Daily market metrics (keep 4 years)."""
+
+    __tablename__ = "market_metrics_daily"
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    date: Mapped[datetime] = mapped_column(Date, unique=True, nullable=False)
+
+    total_users: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    active_users: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    new_signups: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_messages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_audio_minutes: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
+    total_revenue_usd: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
+
+    active_subscriptions_by_plan: Mapped[Optional[dict]] = mapped_column(
+        JSONB if IS_POSTGRES else Text, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

@@ -18,7 +18,7 @@ from .database import (
     PaymentTransaction,
     get_session_dep,
 )
-from .schemas import CheckoutSessionResponse, UpgradeRequest
+from .schemas_v1 import CheckoutSessionResponse, UpgradeRequest
 from .email_service import email_service
 
 logger = logging.getLogger(__name__)

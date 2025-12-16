@@ -15,7 +15,7 @@ from .database import (
     Character,
     get_session_dep,
 )
-from .schemas import (
+from .schemas_v1 import (
     SubscriptionPlanResponse,
     UserSubscriptionResponse,
     UsageResponse,
