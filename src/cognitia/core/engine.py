@@ -31,7 +31,10 @@ from .speech_player import SpeechPlayer
 from .tts_synthesizer import TextToSpeechSynthesizer
 from .state import ThreadSafeConversationState
 
-logger.remove(0)
+try:
+    logger.remove(0)
+except ValueError:
+    pass  # Handler already removed
 logger.add(sys.stderr, level="SUCCESS")
 
 
