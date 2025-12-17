@@ -428,8 +428,10 @@ async def _process_with_sentence_streaming(
     full_response = ""
     sentence_count = 0
     pending_text = ""  # Buffer for short sentences
+    all_audio_chunks = []  # For RVC batching
+    rvc_enabled = context.model.rvc_enabled and context.model.rvc_model_path
     
-    async def send_chunk(text: str):
+    async def send_chunk(text: str, is_final: bool = False):
         """Send a text chunk and optionally audio."""
         nonlocal sentence_count
         sentence_count += 1
@@ -441,7 +443,7 @@ async def _process_with_sentence_streaming(
             "sentence_index": sentence_count,
         })
         
-        # Generate and send audio if enabled
+        # Generate audio if enabled
         if with_audio and text.strip():
             try:
                 audio_bytes, sample_rate = await loop.run_in_executor(
@@ -451,20 +453,17 @@ async def _process_with_sentence_streaming(
                     context.model.voice,
                 )
                 
-                # Apply RVC if enabled
-                if context.model.rvc_enabled and context.model.rvc_model_path:
-                    audio_bytes = await orchestrator.apply_rvc(
-                        audio_bytes,
-                        context.model.rvc_model_path,
-                        sample_rate,
-                    )
-                
-                await websocket.send_json({
-                    "type": "audio",
-                    "content": base64.b64encode(audio_bytes).decode("ascii"),
-                    "sample_rate": sample_rate,
-                    "sentence_index": sentence_count,
-                })
+                if rvc_enabled:
+                    # Accumulate audio for batch RVC at the end
+                    all_audio_chunks.append((audio_bytes, sample_rate))
+                else:
+                    # No RVC - send audio immediately
+                    await websocket.send_json({
+                        "type": "audio",
+                        "content": base64.b64encode(audio_bytes).decode("ascii"),
+                        "sample_rate": sample_rate,
+                        "sentence_index": sentence_count,
+                    })
             except Exception as e:
                 logger.warning(f"TTS failed for chunk: {e}")
     
@@ -507,6 +506,36 @@ async def _process_with_sentence_streaming(
         "type": "text_complete",
         "content": full_response.strip(),
     })
+    
+    # If RVC enabled, do batch conversion and send single audio
+    if rvc_enabled and all_audio_chunks:
+        try:
+            import numpy as np
+            
+            # Combine all audio chunks
+            combined_audio = b''.join(chunk[0] for chunk in all_audio_chunks)
+            sample_rate = all_audio_chunks[0][1]  # All should have same rate
+            
+            logger.info(f"Applying RVC to combined audio: {len(combined_audio)} bytes")
+            
+            # Apply RVC to combined audio
+            rvc_audio = await orchestrator.apply_rvc(
+                combined_audio,
+                context.model.rvc_model_path,
+                sample_rate,
+            )
+            
+            # Send single combined audio
+            await websocket.send_json({
+                "type": "audio",
+                "content": base64.b64encode(rvc_audio).decode("ascii"),
+                "sample_rate": sample_rate,
+                "sentence_index": 0,  # Single combined audio
+            })
+            
+            logger.info(f"Sent RVC audio: {len(rvc_audio)} bytes")
+        except Exception as e:
+            logger.exception(f"RVC batch processing failed: {e}")
 
 
 @app.websocket("/ws")

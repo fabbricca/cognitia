@@ -930,7 +930,7 @@ class Orchestrator:
             sample_rate: Audio sample rate
             
         Returns:
-            Voice-converted audio bytes (raw PCM int16)
+            Voice-converted audio bytes (raw PCM int16, resampled to original rate)
         """
         if not self.rvc_service_url or not model_name:
             return audio_bytes
@@ -939,6 +939,7 @@ class Orchestrator:
             import wave
             import io
             import base64
+            import numpy as np
             
             async with httpx.AsyncClient(timeout=120.0) as client:
                 # Step 1: Load the model
@@ -973,10 +974,23 @@ class Orchestrator:
                     # Response is raw WAV bytes
                     wav_response = response.content
                     
-                    # Extract PCM data from WAV response
+                    # Extract PCM data and sample rate from WAV response
                     wav_io = io.BytesIO(wav_response)
                     with wave.open(wav_io, "rb") as wav:
+                        rvc_sample_rate = wav.getframerate()
                         pcm_data = wav.readframes(wav.getnframes())
+                    
+                    # Resample if RVC outputs different sample rate
+                    if rvc_sample_rate != sample_rate:
+                        logger.info(f"Resampling RVC output from {rvc_sample_rate}Hz to {sample_rate}Hz")
+                        # Convert to numpy
+                        audio_array = np.frombuffer(pcm_data, dtype=np.int16).astype(np.float32)
+                        # Simple linear interpolation resampling
+                        old_length = len(audio_array)
+                        new_length = int(old_length * sample_rate / rvc_sample_rate)
+                        indices = np.linspace(0, old_length - 1, new_length)
+                        resampled = np.interp(indices, np.arange(old_length), audio_array)
+                        pcm_data = resampled.astype(np.int16).tobytes()
                     
                     logger.info(f"RVC conversion successful for model: {model_name}")
                     return pcm_data
