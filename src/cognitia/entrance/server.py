@@ -573,6 +573,65 @@ async def upload_voice_model(
         )
 
 
+@app.put("/api/characters/{character_id}/rvc-model", response_model=CharacterResponse, tags=["characters"])
+async def assign_rvc_model(
+    character_id: UUID,
+    model_name: str = Body(..., embed=True),
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """
+    Assign an existing RVC model to a character.
+    
+    Args:
+        character_id: The character to update
+        model_name: Name of the existing RVC model (from /api/models/rvc)
+    
+    Returns:
+        Updated character information
+    """
+    # Verify character ownership
+    result = await session.execute(
+        select(Character)
+        .where(Character.id == character_id, Character.user_id == user_id)
+    )
+    character = result.scalar_one_or_none()
+    
+    if not character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Character not found",
+        )
+    
+    # Verify model exists
+    rvc_paths = [
+        Path("/app/rvc_models"),  # Docker
+        Path(__file__).parent.parent.parent.parent / "rvc_models",  # Local
+    ]
+    
+    model_exists = False
+    for rvc_dir in rvc_paths:
+        if rvc_dir.exists() and (rvc_dir / model_name).exists():
+            model_exists = True
+            break
+    
+    if not model_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"RVC model '{model_name}' not found",
+        )
+    
+    # Update character
+    character.rvc_model_path = model_name
+    character.rvc_index_path = None  # Clear index path since we're assigning existing model
+    
+    await session.commit()
+    await session.refresh(character)
+    
+    logger.info(f"Assigned RVC model {model_name} to character {character_id}")
+    return CharacterResponse.model_validate(character)
+
+
 @app.post("/api/characters/{character_id}/avatar", response_model=CharacterResponse, tags=["characters"])
 async def upload_character_avatar(
     character_id: UUID,

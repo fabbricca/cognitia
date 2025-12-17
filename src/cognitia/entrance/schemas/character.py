@@ -38,6 +38,8 @@ class CharacterUpdate(BaseModel):
     is_public: Optional[bool] = None
     tags: Optional[List[str]] = None
     category: Optional[str] = None
+    rvc_model_path: Optional[str] = None
+    rvc_index_path: Optional[str] = None
 
 
 class CharacterResponse(CharacterBase):
