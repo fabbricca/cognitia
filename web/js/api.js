@@ -402,6 +402,20 @@ export class ApiClient {
     }
 
     /**
+     * Assign an existing RVC model to a character.
+     * @param {string} characterId - The character ID
+     * @param {string} rvcModelPath - The RVC model path
+     * @param {string} rvcIndexPath - The RVC index path (optional)
+     * @returns {Promise<object>} - Updated character data
+     */
+    async assignRVCModel(characterId, rvcModelPath, rvcIndexPath = null) {
+        return this.request('PUT', `/api/characters/${characterId}/rvc-model`, {
+            rvc_model_path: rvcModelPath,
+            rvc_index_path: rvcIndexPath
+        });
+    }
+
+    /**
      * Get Core GPU server status.
      * @returns {Promise<object>} - Core server status
      */

@@ -148,6 +148,7 @@ class CognitiaApp {
             characterPersona: document.getElementById('character-persona'),
             promptTemplateSelect: document.getElementById('prompt-template-select'),
             voiceModelSelect: document.getElementById('voice-model-select'),
+            rvcModelSelect: document.getElementById('rvc-model-select'),
             pthFile: document.getElementById('pth-file'),
             indexFile: document.getElementById('index-file'),
             saveCharacter: document.getElementById('save-character'),
@@ -1584,8 +1585,17 @@ class CognitiaApp {
     }
 
     // Character modal
-    showCharacterModal(character = null) {
+    async showCharacterModal(character = null) {
         this.elements.characterModal.classList.add('active');
+        
+        // Load available RVC models
+        try {
+            const rvcModels = await api.getRVCModels();
+            this.populateRVCModelSelect(rvcModels);
+        } catch (error) {
+            console.error('Failed to load RVC models:', error);
+            // Continue without RVC models - they can still upload new ones
+        }
         
         if (character) {
             this.elements.modalTitle.textContent = 'Edit Character';
@@ -1597,6 +1607,7 @@ class CognitiaApp {
             }
             this.elements.promptTemplateSelect.value = character.prompt_template || 'pygmalion';
             this.elements.voiceModelSelect.value = character.voice_model || 'glados';
+            this.elements.rvcModelSelect.value = character.rvc_model_path || '';
             this.elements.deleteCharacter.classList.remove('hidden');
             
             // Show avatar if exists
@@ -1618,6 +1629,7 @@ class CognitiaApp {
             }
             this.elements.promptTemplateSelect.value = 'pygmalion';
             this.elements.voiceModelSelect.value = 'glados';
+            this.elements.rvcModelSelect.value = '';
             this.elements.pthFile.value = '';
             this.elements.indexFile.value = '';
             this.elements.avatarFile.value = '';
@@ -1629,6 +1641,25 @@ class CognitiaApp {
 
     hideCharacterModal() {
         this.elements.characterModal.classList.remove('active');
+    }
+
+    populateRVCModelSelect(rvcModels) {
+        const select = this.elements.rvcModelSelect;
+        
+        // Clear existing options except the first one
+        while (select.options.length > 1) {
+            select.remove(1);
+        }
+        
+        // Add available RVC models
+        if (rvcModels && rvcModels.length > 0) {
+            rvcModels.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = model.name;
+                select.appendChild(option);
+            });
+        }
     }
     
     // Settings Modal
@@ -1785,6 +1816,7 @@ class CognitiaApp {
         const personaPrompt = this.elements.characterPersona?.value.trim() || '';
         const promptTemplate = this.elements.promptTemplateSelect.value;
         const voiceModel = this.elements.voiceModelSelect.value;
+        const selectedRVCModel = this.elements.rvcModelSelect.value;
         const pthFile = this.elements.pthFile.files[0];
         const indexFile = this.elements.indexFile.files[0];
         const avatarFile = this.elements.avatarFile.files[0];
@@ -1831,8 +1863,12 @@ class CognitiaApp {
                     await api.uploadCharacterAvatar(id, avatarFile);
                 }
                 
-                // Upload new voice models if provided
-                if (pthFile) {
+                // Handle RVC model assignment
+                if (selectedRVCModel) {
+                    // Assign existing RVC model
+                    await api.assignRVCModel(id, selectedRVCModel);
+                } else if (pthFile) {
+                    // Upload new voice model files
                     showProgress(true);
                     this.elements.saveCharacter.textContent = 'Uploading...';
                     
@@ -1849,8 +1885,12 @@ class CognitiaApp {
                     await api.uploadCharacterAvatar(character.id, avatarFile);
                 }
                 
-                // Upload voice models if provided
-                if (pthFile) {
+                // Handle RVC model assignment
+                if (selectedRVCModel) {
+                    // Assign existing RVC model
+                    await api.assignRVCModel(character.id, selectedRVCModel);
+                } else if (pthFile) {
+                    // Upload new voice model files
                     showProgress(true);
                     this.elements.saveCharacter.textContent = 'Uploading...';
                     
