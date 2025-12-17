@@ -221,7 +221,9 @@ async def bridge_to_orchestrator(
                                             logger.info(f"Character {char.name} using RVC model: {char.rvc_model_path}")
                                         else:
                                             msg["rvc_enabled"] = False
+                                            logger.info(f"Character {char.name} has no RVC model")
                         
+                        logger.info(f"Sending message to Core: type={msg_type}, rvc_enabled={msg.get('rvc_enabled')}, rvc_model_path={msg.get('rvc_model_path')}")
                         await backend_ws.send(json.dumps(msg))
                         
                 except WebSocketDisconnect:

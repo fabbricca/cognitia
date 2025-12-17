@@ -431,6 +431,8 @@ async def _process_with_sentence_streaming(
     all_audio_chunks = []  # For RVC batching
     rvc_enabled = context.model.rvc_enabled and context.model.rvc_model_path
     
+    logger.info(f"RVC enabled for streaming: {rvc_enabled}, model: {context.model.rvc_model_path}")
+    
     async def send_chunk(text: str, is_final: bool = False):
         """Send a text chunk and optionally audio."""
         nonlocal sentence_count
@@ -612,6 +614,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                     
                     logger.info(f"Processing request: communication_type={request.communication_type}, with_audio={request.communication_type in (CommunicationType.AUDIO, CommunicationType.PHONE)}")
+                    logger.info(f"RVC settings: enabled={request.rvc_enabled}, model_path={request.rvc_model_path}")
                     
                     # Decide streaming behavior based on communication type
                     # Audio input -> Audio output, Text input -> Text output
