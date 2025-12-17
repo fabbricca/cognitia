@@ -234,6 +234,13 @@ class CognitiaApp {
             }
         });
 
+        // Auto-resize textarea as user types
+        this.elements.messageInput.addEventListener('input', () => {
+            const textarea = this.elements.messageInput;
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+        });
+
         // Emoji button
         const emojiBtn = document.getElementById('emoji-btn');
         if (emojiBtn) {
@@ -921,6 +928,8 @@ class CognitiaApp {
         if (!text || !this.currentChat) return;
 
         this.elements.messageInput.value = '';
+        // Reset textarea height after sending
+        this.elements.messageInput.style.height = 'auto';
 
         // Show user message
         this.appendMessage('user', text);
