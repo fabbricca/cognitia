@@ -58,6 +58,10 @@ from .database import (
     Character,
     Chat,
     Message,
+    Memory,
+    UserFact,
+    Relationship,
+    DiaryEntry,
 )
 from .schemas_v1 import (
     UserCreate,
@@ -88,6 +92,19 @@ from .middleware import SubscriptionMiddleware
 from .usage_tracker import usage_tracker
 from . import subscription as subscription_module
 from .api.v2 import auth_router, users_router, characters_router, chats_router
+from .memory_service import MemoryService, memory_service
+from .schemas.memory import (
+    UserFactCreate,
+    UserFactResponse,
+    UserFactListResponse,
+    MemoryResponse,
+    MemoryListResponse,
+    MemorySearchRequest,
+    RelationshipResponse,
+    MemoryContextResponse,
+    DiaryEntryResponse,
+    DiaryListResponse,
+)
 
 
 # Configuration
@@ -914,6 +931,16 @@ async def create_message(
         )
     )
 
+    # Trigger memory extraction for assistant messages (fire and forget)
+    if data.role == "assistant" and chat.character_id:
+        asyncio.create_task(
+            _extract_memories_for_exchange(
+                user_id=user_id,
+                character_id=chat.character_id,
+                chat_id=chat_id,
+            )
+        )
+
     return MessageResponse.model_validate(message)
 
 
@@ -1158,6 +1185,242 @@ async def reload_core_model(
 
 
 # =============================================================================
+# Memory Extraction Helper
+# =============================================================================
+
+
+async def _extract_memories_for_exchange(
+    user_id: UUID,
+    character_id: UUID,
+    chat_id: UUID,
+):
+    """
+    Extract memories from the last user+assistant exchange in a chat.
+    
+    Called as a background task after an assistant message is saved.
+    """
+    from .database import get_session
+    
+    try:
+        async with get_session() as session:
+            # Get the last 2 messages (user + assistant)
+            result = await session.execute(
+                select(Message)
+                .where(Message.chat_id == chat_id)
+                .order_by(Message.created_at.desc())
+                .limit(2)
+            )
+            messages = list(result.scalars().all())
+            
+            if len(messages) < 2:
+                return
+            
+            # Messages are in reverse order (newest first)
+            messages.reverse()
+            
+            # Find user and assistant messages
+            user_msg = None
+            assistant_msg = None
+            for m in messages:
+                if m.role == "user":
+                    user_msg = m.content
+                elif m.role == "assistant":
+                    assistant_msg = m.content
+            
+            if not user_msg or not assistant_msg:
+                return
+            
+            # Extract memories
+            result = await memory_service.extract_and_store_memories(
+                session=session,
+                user_id=user_id,
+                character_id=character_id,
+                chat_id=chat_id,
+                user_message=user_msg,
+                assistant_response=assistant_msg,
+            )
+            
+            await session.commit()
+            
+            if result.get("facts_extracted", 0) > 0 or result.get("memory_created"):
+                logger.info(
+                    f"Memory extraction: {result['facts_extracted']} facts, "
+                    f"memory_created={result['memory_created']}, "
+                    f"trust_change={result['trust_change']}"
+                )
+                
+    except Exception as e:
+        logger.error(f"Memory extraction failed: {e}")
+
+
+# =============================================================================
+# Memory System Endpoints
+# =============================================================================
+
+
+@app.get("/api/memory/{character_id}/facts", response_model=UserFactListResponse, tags=["memory"])
+async def get_user_facts(
+    character_id: UUID,
+    category: Optional[str] = Query(None, description="Filter by category"),
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Get all facts the AI knows about the user for a specific character."""
+    facts = await memory_service.get_user_facts(
+        session, user_id, character_id, category=category
+    )
+    return UserFactListResponse(
+        facts=[UserFactResponse.model_validate(f) for f in facts],
+        total=len(facts)
+    )
+
+
+@app.post("/api/memory/{character_id}/facts", response_model=UserFactResponse, tags=["memory"])
+async def create_user_fact(
+    character_id: UUID,
+    fact: UserFactCreate,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Manually add a fact about the user."""
+    new_fact = await memory_service._store_fact(
+        session,
+        user_id=user_id,
+        character_id=character_id,
+        category=fact.category,
+        key=fact.key,
+        value=fact.value,
+        confidence=fact.confidence,
+    )
+    await session.commit()
+    await session.refresh(new_fact)
+    return UserFactResponse.model_validate(new_fact)
+
+
+@app.delete("/api/memory/{character_id}/facts/{fact_key}", status_code=status.HTTP_204_NO_CONTENT, tags=["memory"])
+async def delete_user_fact(
+    character_id: UUID,
+    fact_key: str,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Delete a specific fact (user-initiated forget)."""
+    from sqlalchemy import delete as sql_delete, and_
+    stmt = sql_delete(UserFact).where(
+        and_(
+            UserFact.user_id == user_id,
+            UserFact.character_id == character_id,
+            UserFact.key == fact_key,
+        )
+    )
+    await session.execute(stmt)
+    await session.commit()
+
+
+@app.get("/api/memory/{character_id}/memories", response_model=MemoryListResponse, tags=["memory"])
+async def get_memories(
+    character_id: UUID,
+    memory_type: Optional[str] = Query(None, description="Filter by type: episodic, semantic, event"),
+    limit: int = Query(20, ge=1, le=100),
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Get episodic memories for a character."""
+    memories = await memory_service.get_relevant_memories(
+        session, user_id, character_id,
+        memory_type=memory_type,
+        limit=limit
+    )
+    return MemoryListResponse(
+        memories=[MemoryResponse.model_validate(m) for m in memories],
+        total=len(memories)
+    )
+
+
+@app.delete("/api/memory/{character_id}/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["memory"])
+async def delete_memory(
+    character_id: UUID,
+    memory_id: UUID,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Delete a specific memory."""
+    deleted = await memory_service.delete_memory(session, memory_id, user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    await session.commit()
+
+
+@app.get("/api/memory/{character_id}/relationship", response_model=RelationshipResponse, tags=["memory"])
+async def get_relationship(
+    character_id: UUID,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Get relationship status with a character."""
+    relationship = await memory_service.get_relationship_status(session, user_id, character_id)
+    if not relationship:
+        # Create initial relationship
+        relationship = await memory_service.get_or_create_relationship(session, user_id, character_id)
+        await session.commit()
+    return RelationshipResponse.model_validate(relationship)
+
+
+@app.get("/api/memory/{character_id}/context", response_model=MemoryContextResponse, tags=["memory"])
+async def get_memory_context(
+    character_id: UUID,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """
+    Get full memory context that would be injected into LLM prompts.
+    
+    Useful for debugging and understanding what the AI "knows".
+    """
+    # Get all components
+    relationship = await memory_service.get_relationship_status(session, user_id, character_id)
+    facts = await memory_service.get_user_facts(session, user_id, character_id)
+    memories = await memory_service.get_relevant_memories(session, user_id, character_id, limit=5)
+    context_string = await memory_service.build_memory_context(session, user_id, character_id)
+    
+    return MemoryContextResponse(
+        relationship=RelationshipResponse.model_validate(relationship) if relationship else None,
+        facts=[UserFactResponse.model_validate(f) for f in facts],
+        recent_memories=[MemoryResponse.model_validate(m) for m in memories],
+        context_string=context_string
+    )
+
+
+@app.get("/api/memory/{character_id}/diary", response_model=DiaryListResponse, tags=["memory"])
+async def get_diary_entries(
+    character_id: UUID,
+    entry_type: Optional[str] = Query("daily", description="Entry type: daily, weekly, monthly"),
+    limit: int = Query(30, ge=1, le=100),
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Get diary entries summarizing past conversations."""
+    from sqlalchemy import and_
+    stmt = select(DiaryEntry).where(
+        and_(
+            DiaryEntry.user_id == user_id,
+            DiaryEntry.character_id == character_id,
+        )
+    )
+    if entry_type:
+        stmt = stmt.where(DiaryEntry.entry_type == entry_type)
+    stmt = stmt.order_by(DiaryEntry.entry_date.desc()).limit(limit)
+    
+    result = await session.execute(stmt)
+    entries = list(result.scalars().all())
+    
+    return DiaryListResponse(
+        entries=[DiaryEntryResponse.model_validate(e) for e in entries],
+        total=len(entries)
+    )
+
+
+# =============================================================================
 # WebSocket Proxy to Core
 # =============================================================================
 
@@ -1353,6 +1616,20 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                                     for m in messages
                                 ]
                         
+                        # Get memory context for system prompt enrichment
+                        memory_context = ""
+                        if char_id:
+                            try:
+                                async with get_session() as session:
+                                    memory_context = await memory_service.build_memory_context(
+                                        session,
+                                        user_id=UUID(user_id),
+                                        character_id=UUID(char_id),
+                                        current_message=msg.get("message") or msg.get("data", ""),
+                                    )
+                            except Exception as e:
+                                logger.warning(f"Failed to get memory context: {e}")
+                        
                         # Map to Core format
                         core_msg = {
                             "type": "process",
@@ -1368,6 +1645,7 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                             "prompt_template": msg.get("prompt_template", "pygmalion"),
                             "rvc_model_path": msg.get("rvc_model_path"),
                             "rvc_enabled": msg.get("rvc_enabled", False),
+                            "memory_context": memory_context,  # New: memory context for prompt enrichment
                         }
                         
                         logger.info(f"Forwarding to Core: type={core_msg['type']}, message={core_msg['message'][:50] if core_msg['message'] else 'empty'}")

@@ -413,6 +413,13 @@ async def _process_with_sentence_streaming(
     context.user_message = user_message
     context.enriched_system_prompt = orchestrator.enrich_system_prompt(context)
     
+    # Send back transcription if audio was processed (so frontend can save text + audio)
+    if request.communication_type in (CommunicationType.AUDIO, CommunicationType.PHONE):
+        await websocket.send_json({
+            "type": "user_transcription",
+            "content": user_message,
+        })
+    
     # Build messages for LLM
     messages = context.conversation.conversation_history + [
         {"role": "user", "content": context.user_message}
@@ -609,6 +616,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         rvc_model_path=data.get("rvc_model_path"),
                         rvc_index_path=data.get("rvc_index_path"),
                         rvc_enabled=data.get("rvc_enabled", False),
+                        memory_context=data.get("memory_context"),  # Memory context from entrance
                         temperature=data.get("temperature", 0.8),
                         max_tokens=data.get("max_tokens", 2048),
                     )

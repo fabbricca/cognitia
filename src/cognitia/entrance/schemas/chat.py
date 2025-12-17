@@ -97,6 +97,7 @@ class MessageCreate(BaseModel):
     role: str = Field(default="user", pattern="^(user|assistant|system)$")
     content: str = Field(..., min_length=1, max_length=10000)
     character_id: Optional[UUID] = Field(None, description="Character for assistant messages")
+    audio_url: Optional[str] = Field(None, description="URL/data URI for audio message")
 
 
 class MessageResponse(BaseModel):

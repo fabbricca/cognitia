@@ -565,6 +565,168 @@ class MarketMetricsDaily(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+# =============================================================================
+# Memory System Models
+# =============================================================================
+
+
+class Memory(Base):
+    """Core memory item for episodic and semantic memories."""
+
+    __tablename__ = "memories"
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    character_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("characters.id", ondelete="CASCADE"), nullable=False
+    )
+    
+    # Memory classification
+    memory_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # 'episodic', 'semantic', 'event'
+    
+    # Content
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    emotional_tone: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )  # 'happy', 'sad', 'excited', etc.
+    
+    # Importance and relevance
+    importance: Mapped[float] = mapped_column(Numeric(3, 2), default=0.5)
+    
+    # Source tracking
+    source_chat_id: Mapped[Optional[UUID]] = mapped_column(
+        GUID(), ForeignKey("chats.id", ondelete="SET NULL"), nullable=True
+    )
+    source_message_ids: Mapped[Optional[list]] = mapped_column(
+        ARRAY(GUID()) if IS_POSTGRES else Text, nullable=True
+    )
+    
+    # Access tracking for importance decay
+    last_accessed: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow
+    )
+    access_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class UserFact(Base):
+    """Semantic memory: facts learned about the user."""
+
+    __tablename__ = "user_facts"
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    character_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("characters.id", ondelete="CASCADE"), nullable=False
+    )
+    
+    # Fact classification
+    category: Mapped[str] = mapped_column(
+        String(100), nullable=False
+    )  # 'personal', 'preference', 'relationship', 'life_event', 'trait'
+    
+    # Key-value storage
+    key: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # Confidence in this fact (can be updated if contradicted)
+    confidence: Mapped[float] = mapped_column(Numeric(3, 2), default=1.0)
+    
+    # Source memory that extracted this fact
+    source_memory_id: Mapped[Optional[UUID]] = mapped_column(
+        GUID(), ForeignKey("memories.id", ondelete="SET NULL"), nullable=True
+    )
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class Relationship(Base):
+    """Track relationship progression between user and character."""
+
+    __tablename__ = "relationships"
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    character_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("characters.id", ondelete="CASCADE"), nullable=False
+    )
+    
+    # Relationship stage
+    stage: Mapped[str] = mapped_column(
+        String(50), default="stranger"
+    )  # stranger, acquaintance, friend, close_friend, confidant, soulmate
+    
+    # Metrics
+    trust_level: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
+    total_conversations: Mapped[int] = mapped_column(Integer, default=0)
+    total_messages: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Timeline
+    first_conversation: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_conversation: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Fun elements
+    inside_jokes: Mapped[Optional[dict]] = mapped_column(
+        JSONB if IS_POSTGRES else Text, nullable=True
+    )  # [{"joke": "...", "context": "...", "created_at": "..."}]
+    milestones: Mapped[Optional[dict]] = mapped_column(
+        JSONB if IS_POSTGRES else Text, nullable=True
+    )  # [{"name": "first_laugh", "date": "...", "description": "..."}]
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class DiaryEntry(Base):
+    """Daily/weekly/monthly diary summaries of conversations."""
+
+    __tablename__ = "diary_entries"
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    character_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("characters.id", ondelete="CASCADE"), nullable=False
+    )
+    
+    # Entry metadata
+    entry_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    entry_type: Mapped[str] = mapped_column(
+        String(20), default="daily"
+    )  # 'daily', 'weekly', 'monthly'
+    
+    # Content
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    highlights: Mapped[Optional[dict]] = mapped_column(
+        JSONB if IS_POSTGRES else Text, nullable=True
+    )  # ["User got a promotion", "Talked about travel plans"]
+    emotional_summary: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    topics_discussed: Mapped[Optional[dict]] = mapped_column(
+        JSONB if IS_POSTGRES else Text, nullable=True
+    )  # ["work", "family", "hobbies"]
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 async def init_db():
     """Initialize database tables."""
     async with engine.begin() as conn:

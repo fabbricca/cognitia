@@ -50,15 +50,16 @@ COPY src/cognitia/entrance ./cognitia/entrance
 # Copy web frontend
 COPY web ./web
 
-# Copy Alembic migration files (v2) - Optional for production
-# For development, these will be created/mounted dynamically
-# (Alembic files will be initialized inside container during development)
+# Copy Alembic configuration and migrations for database schema management
+COPY alembic.ini ./alembic.ini
+COPY alembic ./alembic
 
 # Fix permissions on all copied files and create data directories
 # Give cognitia user ownership of /app for development (alembic init, etc.)
-RUN chmod -R a+r /app/cognitia /app/web && \
+RUN chmod -R a+r /app/cognitia /app/web /app/alembic && \
     find /app/cognitia -type d -exec chmod a+rx {} \; && \
     find /app/web -type d -exec chmod a+rx {} \; && \
+    find /app/alembic -type d -exec chmod a+rx {} \; && \
     mkdir -p /app/data /app/web/avatars && \
     chown -R cognitia:cognitia /app
 

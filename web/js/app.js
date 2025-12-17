@@ -17,6 +17,8 @@ class CognitiaApp {
         this.messages = [];
         this.isInCall = false;
         this.expectingAudioResponse = false; // Track if we sent audio and expect audio back
+        this.pendingUserAudio = null;        // Pending user audio awaiting transcription
+        this.pendingAssistantText = '';      // Accumulated text for audio responses
 
         // Managers
         this.ws = null;
@@ -531,6 +533,10 @@ class CognitiaApp {
             this.handleTranscription(msg);
         });
 
+        this.ws.on('user_transcription', (msg) => {
+            this.handleUserTranscription(msg);
+        });
+
         this.ws.on('status', (msg) => {
             console.log('Status:', msg.message);
         });
@@ -1003,14 +1009,16 @@ class CognitiaApp {
         // Hide typing indicator on first chunk
         this.hideTypingIndicator();
         
-        // Skip text if we're expecting audio response (user sent audio)
-        if (this.expectingAudioResponse) {
-            return;
-        }
-        
         // Each sentence is a separate message
         const sentence = msg.content;
         if (sentence && sentence.trim()) {
+            if (this.expectingAudioResponse) {
+                // Accumulate text for saving with audio later
+                this.pendingAssistantText = (this.pendingAssistantText || '') + sentence + ' ';
+                return;
+            }
+            
+            // Text-only mode: display and save immediately
             // Create a new message element for this sentence
             this.appendMessage('assistant', sentence);
             
@@ -1033,6 +1041,7 @@ class CognitiaApp {
         // Reset streaming state
         this.currentStreamingText = '';
         this.currentStreamingElement = null;
+        this.pendingAssistantText = '';
         
         // Reset audio expectation flag
         this.expectingAudioResponse = false;
@@ -1059,9 +1068,21 @@ class CognitiaApp {
                 const audioUrl = this.dataUriToObjectUrl(wavDataUri);
                 this.appendAudioMessage('assistant', audioUrl);
                 
-                // Save the data URI to database (persists across reloads)
+                // Save with text in content, audio in audio_url
                 if (this.currentChat) {
-                    api.createMessage(this.currentChat.id, wavDataUri, 'assistant').catch(console.error);
+                    const textContent = (this.pendingAssistantText || '').trim() || '[Audio message]';
+                    api.createMessage(
+                        this.currentChat.id, 
+                        textContent,  // Text for memory
+                        'assistant', 
+                        wavDataUri    // Audio for playback
+                    ).catch(console.error);
+                    
+                    // Add to local messages with text
+                    this.messages.push({ role: 'assistant', content: textContent });
+                    
+                    // Clear pending text
+                    this.pendingAssistantText = '';
                 }
             }
         }
@@ -1141,6 +1162,29 @@ class CognitiaApp {
             console.log('Transcription received:', msg.text);
             // Optionally, we could update the audio message to show the transcription
             // but for now, the audio message itself is sufficient
+        }
+    }
+
+    handleUserTranscription(msg) {
+        // Backend transcribed user's audio - now save the message with text + audio
+        if (msg.content && this.pendingUserAudio && this.currentChat) {
+            const { audioDataUri } = this.pendingUserAudio;
+            
+            // Save message with transcribed text in content, audio in audio_url
+            api.createMessage(
+                this.currentChat.id, 
+                msg.content,  // Transcribed text for memory
+                'user', 
+                audioDataUri  // Audio data URI for playback
+            ).catch(console.error);
+            
+            // Add to local messages array with text
+            this.messages.push({ role: 'user', content: msg.content });
+            
+            // Clear pending audio
+            this.pendingUserAudio = null;
+            
+            console.log('Saved user audio message with transcription:', msg.content);
         }
     }
 
@@ -1343,9 +1387,10 @@ class CognitiaApp {
         // Display user's audio message in chat
         this.appendAudioMessage('user', url);
         
-        // Save user's audio message to database
+        // Store audio data URI for when transcription arrives
+        // The message will be saved with text + audio when user_transcription is received
         const audioDataUri = `data:audio/webm;base64,${data}`;
-        api.createMessage(this.currentChat.id, audioDataUri, 'user').catch(console.error);
+        this.pendingUserAudio = { audioDataUri };
         
         // Show typing indicator for AI response
         this.showTypingIndicator();

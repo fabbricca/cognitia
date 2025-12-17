@@ -81,6 +81,7 @@ class ConversationContext:
     conversation_history: list[dict] = field(default_factory=list)
     summary: Optional[str] = None  # Summary of older messages
     entities: dict[str, Any] = field(default_factory=dict)  # Extracted entities
+    memory_context: Optional[str] = None  # Pre-built memory context from entrance
     last_n_messages: int = 20  # How many recent messages to include
 
 
@@ -112,6 +113,7 @@ class ProcessingRequest:
     rvc_model_path: Optional[str] = None
     rvc_index_path: Optional[str] = None
     rvc_enabled: bool = False
+    memory_context: Optional[str] = None  # Pre-built memory context from entrance
     # LLM settings
     temperature: float = 0.8
     max_tokens: int = 2048
@@ -316,6 +318,7 @@ class Orchestrator:
         # Build conversation context
         conversation = ConversationContext(
             conversation_history=request.conversation_history,
+            memory_context=request.memory_context,
         )
         
         return ProcessingContext(
@@ -335,6 +338,7 @@ class Orchestrator:
         Enrich the system prompt with context.
         
         Adds:
+        - Memory context (relationship, facts, memories)
         - User persona information
         - Conversation summary
         - Extracted entities
@@ -348,11 +352,15 @@ class Orchestrator:
         """
         prompt_parts = [context.model.system_prompt]
         
-        # Add conversation summary if available
+        # Add memory context (from entrance server memory system)
+        if context.conversation.memory_context:
+            prompt_parts.append(f"\n\n{context.conversation.memory_context}")
+        
+        # Add conversation summary if available (legacy)
         if context.conversation.summary:
             prompt_parts.append(f"\n\n[Previous conversation summary: {context.conversation.summary}]")
         
-        # Add extracted entities if available
+        # Add extracted entities if available (legacy)
         if context.conversation.entities:
             entities_str = ", ".join(
                 f"{k}: {v}" for k, v in context.conversation.entities.items()
