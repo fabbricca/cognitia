@@ -21,6 +21,7 @@ from uuid import UUID
 import httpx
 import websockets
 from fastapi import (
+    Body,
     FastAPI,
     Depends,
     HTTPException,
