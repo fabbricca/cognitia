@@ -212,6 +212,15 @@ async def bridge_to_orchestrator(
                                     if char:
                                         msg["system_prompt"] = char.system_prompt
                                         msg["model_id"] = char_id
+                                        msg["model_name"] = char.name
+                                        msg["voice"] = char.voice_model
+                                        # Include RVC voice conversion settings
+                                        if char.rvc_model_path:
+                                            msg["rvc_model_path"] = char.rvc_model_path
+                                            msg["rvc_enabled"] = True
+                                            logger.info(f"Character {char.name} using RVC model: {char.rvc_model_path}")
+                                        else:
+                                            msg["rvc_enabled"] = False
                         
                         await backend_ws.send(json.dumps(msg))
                         
