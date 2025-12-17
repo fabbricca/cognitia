@@ -207,9 +207,11 @@ async def bridge_to_orchestrator(
                         if msg_type in ("text", "audio", "character_switch"):
                             char_id = msg.get("characterId")
                             if char_id:
+                                logger.info(f"User selected character ID: {char_id}")
                                 async with get_session() as session:
                                     char = await session.get(Character, char_id)
                                     if char:
+                                        logger.info(f"Character details: name={char.name}, rvc_model_path={char.rvc_model_path}")
                                         msg["system_prompt"] = char.system_prompt
                                         msg["model_id"] = char_id
                                         msg["model_name"] = char.name
