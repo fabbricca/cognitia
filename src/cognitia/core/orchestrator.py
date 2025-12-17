@@ -922,35 +922,68 @@ class Orchestrator:
         sample_rate: int = 24000,
     ) -> bytes:
         """
-        Apply RVC voice conversion via external service.
+        Apply RVC voice conversion via external service (rvc-python API).
         
         Args:
-            audio_bytes: Input audio bytes
+            audio_bytes: Input audio bytes (raw PCM int16)
             model_name: RVC model name
             sample_rate: Audio sample rate
             
         Returns:
-            Voice-converted audio bytes
+            Voice-converted audio bytes (raw PCM int16)
         """
         if not self.rvc_service_url or not model_name:
             return audio_bytes
         
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            import wave
+            import io
+            import base64
+            
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                # Step 1: Load the model
+                load_response = await client.post(
+                    f"{self.rvc_service_url}/models/{model_name}",
+                    timeout=60.0
+                )
+                if load_response.status_code != 200:
+                    logger.warning(f"RVC model load failed: {load_response.status_code} - {load_response.text}")
+                    return audio_bytes
+                
+                logger.info(f"RVC model loaded: {model_name}")
+                
+                # Step 2: Convert raw PCM to WAV format
+                wav_buffer = io.BytesIO()
+                with wave.open(wav_buffer, "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)  # 16-bit
+                    wav.setframerate(sample_rate)
+                    wav.writeframes(audio_bytes)
+                wav_data = wav_buffer.getvalue()
+                
+                # Step 3: Send as base64 JSON to /convert
+                b64_audio = base64.b64encode(wav_data).decode("ascii")
                 response = await client.post(
                     f"{self.rvc_service_url}/convert",
-                    files={"audio": ("audio.wav", audio_bytes, "audio/wav")},
-                    data={
-                        "model_name": model_name,
-                        "sample_rate": sample_rate,
-                    }
+                    json={"audio_data": b64_audio},
+                    timeout=120.0
                 )
+                
                 if response.status_code == 200:
+                    # Response is raw WAV bytes
+                    wav_response = response.content
+                    
+                    # Extract PCM data from WAV response
+                    wav_io = io.BytesIO(wav_response)
+                    with wave.open(wav_io, "rb") as wav:
+                        pcm_data = wav.readframes(wav.getnframes())
+                    
                     logger.info(f"RVC conversion successful for model: {model_name}")
-                    return response.content
+                    return pcm_data
                 else:
                     logger.warning(f"RVC conversion failed: {response.status_code}")
                     return audio_bytes
+                    
         except Exception as e:
             logger.warning(f"RVC service unavailable: {e}")
             return audio_bytes
@@ -1028,6 +1061,9 @@ class Orchestrator:
         if request.communication_type == CommunicationType.PHONE:
             use_tts = True
             logger.info("Using TTS: phone call mode")
+        elif request.communication_type == CommunicationType.AUDIO:
+            use_tts = True
+            logger.info("Using TTS: audio message mode")
         elif len(llm_response) > self.SHORT_RESPONSE_THRESHOLD:
             use_tts = True
             logger.info(f"Using TTS: long response ({len(llm_response)} > {self.SHORT_RESPONSE_THRESHOLD})")
