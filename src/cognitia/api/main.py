@@ -196,6 +196,8 @@ async def bridge_to_orchestrator(
                         msg = await client_ws.receive_json()
                         msg_type = msg.get("type", "")
                         
+                        logger.info(f"Received client message: type={msg_type}, characterId={msg.get('characterId')}, keys={list(msg.keys())}")
+                        
                         if msg_type == "ping":
                             await client_ws.send_json({"type": "pong"})
                             continue
