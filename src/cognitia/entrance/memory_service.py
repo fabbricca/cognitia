@@ -24,7 +24,7 @@ from .database import Memory, UserFact, Relationship, DiaryEntry, Message, Chat
 FACT_EXTRACTION_PROMPT = '''Extract any personal information the user revealed about themselves from this conversation exchange.
 
 Return a JSON object with these optional fields (only include fields if information was found):
-- "facts": array of facts, each with {"key": "...", "value": "...", "category": "personal|preference|relationship|life_event|trait", "confidence": 0.0-1.0}
+- "facts": array of facts, each with {{"key": "...", "value": "...", "category": "personal|preference|relationship|life_event|trait", "confidence": 0.0-1.0}}
 - "emotional_tone": overall emotional tone ("happy", "sad", "excited", "anxious", "neutral", "frustrated", "loving", etc.)
 - "importance": 0.0-1.0 rating of how important this exchange is to remember
 - "should_create_memory": true/false - should we create an episodic memory for this?
