@@ -252,6 +252,13 @@ class CognitiaApp {
     }
 
     bindEvents() {
+        // Global click handler to close message action menus
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.message-actions')) {
+                document.querySelectorAll('.message-actions-menu.show').forEach(m => m.classList.remove('show'));
+            }
+        });
+
         // Login form
         this.elements.loginSubmit.addEventListener('click', (e) => {
             e.preventDefault();
@@ -962,15 +969,18 @@ class CognitiaApp {
         this.elements.messagesContainer.innerHTML = '';
 
         for (const msg of this.messages) {
-            this.appendMessage(msg.role, msg.content, msg.audio_url, msg.created_at || msg.timestamp);
+            this.appendMessage(msg.role, msg.content, msg.audio_url, msg.created_at || msg.timestamp, msg.id);
         }
 
         this.scrollToBottom();
     }
 
-    appendMessage(role, content, audioUrl = null, timestamp = null) {
+    appendMessage(role, content, audioUrl = null, timestamp = null, messageId = null) {
         const div = document.createElement('div');
         div.className = `message ${role === 'user' ? 'sent' : 'received'}`;
+        if (messageId) {
+            div.dataset.messageId = messageId;
+        }
 
         // Get avatar info
         let avatarHtml = '';
@@ -987,6 +997,34 @@ class CognitiaApp {
         // Format timestamp
         const timeStr = this.formatMessageTime(timestamp || new Date());
 
+        // Message actions menu (three dots)
+        const actionsHtml = messageId ? `
+            <div class="message-actions">
+                <button class="message-actions-btn" title="Message options">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="5" r="2"/>
+                        <circle cx="12" cy="12" r="2"/>
+                        <circle cx="12" cy="19" r="2"/>
+                    </svg>
+                </button>
+                <div class="message-actions-menu">
+                    <button class="message-action-item delete-single" data-message-id="${messageId}">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                        </svg>
+                        Delete this message
+                    </button>
+                    <button class="message-action-item delete-after" data-message-id="${messageId}">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                            <path d="M12 10v8M8 14l4 4 4-4"/>
+                        </svg>
+                        Delete this and all after
+                    </button>
+                </div>
+            </div>
+        ` : '';
+
         let bubbleHtml = '';
         let isAudioMessage = false;
 
@@ -1000,6 +1038,7 @@ class CognitiaApp {
                         <span class="message-time">${timeStr}</span>
                     </div>
                 </div>
+                ${actionsHtml}
             `;
             isAudioMessage = true;
         } else if (audioUrl && audioUrl.trim()) {
@@ -1011,6 +1050,7 @@ class CognitiaApp {
                         <span class="message-time">${timeStr}</span>
                     </div>
                 </div>
+                ${actionsHtml}
             `;
             isAudioMessage = true;
         } else {
@@ -1022,10 +1062,48 @@ class CognitiaApp {
                         <span class="message-time">${timeStr}</span>
                     </div>
                 </div>
+                ${actionsHtml}
             `;
         }
 
         div.innerHTML = avatarHtml + bubbleHtml;
+
+        // Add event listeners for message actions
+        if (messageId) {
+            const actionsBtn = div.querySelector('.message-actions-btn');
+            const actionsMenu = div.querySelector('.message-actions-menu');
+            
+            if (actionsBtn && actionsMenu) {
+                actionsBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // Close any other open menus
+                    document.querySelectorAll('.message-actions-menu.show').forEach(m => {
+                        if (m !== actionsMenu) m.classList.remove('show');
+                    });
+                    actionsMenu.classList.toggle('show');
+                });
+
+                // Delete single message
+                const deleteSingleBtn = div.querySelector('.delete-single');
+                if (deleteSingleBtn) {
+                    deleteSingleBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        actionsMenu.classList.remove('show');
+                        this.showDeleteConfirmation(messageId, 'single');
+                    });
+                }
+
+                // Delete this and after
+                const deleteAfterBtn = div.querySelector('.delete-after');
+                if (deleteAfterBtn) {
+                    deleteAfterBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        actionsMenu.classList.remove('show');
+                        this.showDeleteConfirmation(messageId, 'after');
+                    });
+                }
+            }
+        }
 
         if (this.elements.messagesContainer) {
             this.elements.messagesContainer.appendChild(div);
@@ -2746,6 +2824,105 @@ class CognitiaApp {
                 ${entry.emotional_summary ? `<div class="diary-emotional">Mood: ${this.escapeHtml(entry.emotional_summary)}</div>` : ''}
             </div>
         `).join('');
+    }
+
+    // =========================================================================
+    // Message Deletion
+    // =========================================================================
+
+    showDeleteConfirmation(messageId, deleteType) {
+        const modal = document.getElementById('deleteMessageModal');
+        if (!modal) {
+            // Create modal if it doesn't exist
+            this.createDeleteModal();
+            return this.showDeleteConfirmation(messageId, deleteType);
+        }
+
+        const title = modal.querySelector('.modal-title');
+        const message = modal.querySelector('.delete-message-text');
+        const confirmBtn = modal.querySelector('.confirm-delete-btn');
+
+        if (deleteType === 'single') {
+            title.textContent = 'Delete Message';
+            message.textContent = 'Are you sure you want to delete this message? This action cannot be undone.';
+        } else {
+            title.textContent = 'Delete Messages';
+            message.textContent = 'Are you sure you want to delete this message and all messages after it? This action cannot be undone.';
+        }
+
+        // Store the delete info
+        confirmBtn.dataset.messageId = messageId;
+        confirmBtn.dataset.deleteType = deleteType;
+
+        modal.classList.add('show');
+    }
+
+    createDeleteModal() {
+        const modal = document.createElement('div');
+        modal.id = 'deleteMessageModal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content delete-modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title">Delete Message</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="delete-message-text">Are you sure you want to delete this message?</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary cancel-delete-btn">Cancel</button>
+                    <button class="btn btn-danger confirm-delete-btn">Delete</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Add event listeners
+        modal.querySelector('.modal-close').addEventListener('click', () => {
+            modal.classList.remove('show');
+        });
+
+        modal.querySelector('.cancel-delete-btn').addEventListener('click', () => {
+            modal.classList.remove('show');
+        });
+
+        modal.querySelector('.confirm-delete-btn').addEventListener('click', async (e) => {
+            const messageId = e.target.dataset.messageId;
+            const deleteType = e.target.dataset.deleteType;
+            await this.executeMessageDelete(messageId, deleteType);
+            modal.classList.remove('show');
+        });
+
+        // Close on backdrop click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.classList.remove('show');
+            }
+        });
+    }
+
+    async executeMessageDelete(messageId, deleteType) {
+        if (!this.currentChat) return;
+
+        try {
+            let result;
+            if (deleteType === 'single') {
+                result = await this.api.deleteMessage(this.currentChat.id, messageId);
+            } else {
+                result = await this.api.deleteMessageAndAfter(this.currentChat.id, messageId);
+            }
+
+            if (result.success) {
+                // Reload messages
+                await this.loadChatMessages(this.currentChat.id);
+                this.showToast(`Deleted ${result.deleted_count} message(s)`, 'success');
+            }
+        } catch (error) {
+            console.error('Failed to delete message:', error);
+            this.showToast('Failed to delete message: ' + error.message, 'error');
+        }
     }
 
     // Utilities

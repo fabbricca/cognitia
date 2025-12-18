@@ -979,6 +979,7 @@ body {
   max-width: 75%;
   animation: messageIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   margin-bottom: 8px;
+  position: relative;
 }
 
 @keyframes messageIn {
@@ -1095,6 +1096,161 @@ body {
 
 .message-status.read {
   color: #53bdeb;
+}
+
+/* Message Actions Menu */
+.message-actions {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.message.sent .message-actions {
+  left: -36px;
+}
+
+.message.received .message-actions {
+  right: -36px;
+}
+
+.message:hover .message-actions {
+  opacity: 1;
+}
+
+.message-actions-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.message-actions-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.message-actions-menu {
+  position: absolute;
+  top: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  min-width: 180px;
+  padding: 6px;
+  z-index: 100;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px);
+  transition: all 0.2s ease;
+}
+
+.message.sent .message-actions-menu {
+  right: 0;
+}
+
+.message.received .message-actions-menu {
+  left: 0;
+}
+
+.message-actions-menu.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(4px);
+}
+
+.message-action-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: background 0.15s ease;
+  text-align: left;
+}
+
+.message-action-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.message-action-item.delete-single,
+.message-action-item.delete-after {
+  color: var(--error);
+}
+
+.message-action-item.delete-single:hover,
+.message-action-item.delete-after:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.message-action-item svg {
+  flex-shrink: 0;
+}
+
+/* Delete Message Modal */
+.delete-modal-content {
+  max-width: 400px;
+}
+
+.delete-message-text {
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+  margin-top: 16px;
+}
+
+.btn-danger {
+  background: var(--error);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-secondary);
 }
 
 /* Audio message */

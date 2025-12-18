@@ -36,7 +36,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -984,6 +984,100 @@ async def create_message(
         )
 
     return MessageResponse.model_validate(message)
+
+
+@app.delete("/api/chats/{chat_id}/messages/{message_id}", tags=["messages"])
+async def delete_message(
+    chat_id: UUID,
+    message_id: UUID,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Delete a single message from a chat."""
+    # Verify chat belongs to user
+    result = await session.execute(
+        select(Chat)
+        .join(Character)
+        .where(Chat.id == chat_id, Character.user_id == user_id)
+    )
+    chat = result.scalar_one_or_none()
+
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found",
+        )
+
+    # Verify message exists and belongs to this chat
+    result = await session.execute(
+        select(Message).where(
+            Message.id == message_id,
+            Message.chat_id == chat_id,
+        )
+    )
+    message = result.scalar_one_or_none()
+
+    if not message:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found",
+        )
+
+    await session.delete(message)
+    await session.commit()
+
+    return {"success": True, "deleted_count": 1}
+
+
+@app.delete("/api/chats/{chat_id}/messages/{message_id}/and-after", tags=["messages"])
+async def delete_message_and_after(
+    chat_id: UUID,
+    message_id: UUID,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Delete a message and all messages after it in a chat."""
+    # Verify chat belongs to user
+    result = await session.execute(
+        select(Chat)
+        .join(Character)
+        .where(Chat.id == chat_id, Character.user_id == user_id)
+    )
+    chat = result.scalar_one_or_none()
+
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found",
+        )
+
+    # Get the target message to find its timestamp
+    result = await session.execute(
+        select(Message).where(
+            Message.id == message_id,
+            Message.chat_id == chat_id,
+        )
+    )
+    target_message = result.scalar_one_or_none()
+
+    if not target_message:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found",
+        )
+
+    # Delete all messages with created_at >= target message's created_at
+    delete_stmt = delete(Message).where(
+        and_(
+            Message.chat_id == chat_id,
+            Message.created_at >= target_message.created_at,
+        )
+    )
+    result = await session.execute(delete_stmt)
+    deleted_count = result.rowcount
+    await session.commit()
+
+    return {"success": True, "deleted_count": deleted_count}
 
 
 @app.get("/api/v2/chats/{chat_id}/messages", response_model=CursorPaginatedMessages, tags=["messages"])

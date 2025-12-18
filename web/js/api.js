@@ -383,6 +383,26 @@ export class ApiClient {
         });
     }
 
+    /**
+     * Delete a single message from a chat.
+     * @param {string} chatId - The chat ID
+     * @param {string} messageId - The message ID to delete
+     * @returns {Promise<object>} - Success status and deleted count
+     */
+    async deleteMessage(chatId, messageId) {
+        return this.request('DELETE', `/api/chats/${chatId}/messages/${messageId}`);
+    }
+
+    /**
+     * Delete a message and all messages after it in a chat.
+     * @param {string} chatId - The chat ID
+     * @param {string} messageId - The message ID to start deleting from
+     * @returns {Promise<object>} - Success status and deleted count
+     */
+    async deleteMessageAndAfter(chatId, messageId) {
+        return this.request('DELETE', `/api/chats/${chatId}/messages/${messageId}/and-after`);
+    }
+
     // Model/Voice endpoints
     
     /**
