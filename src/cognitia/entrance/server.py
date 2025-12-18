@@ -1868,10 +1868,14 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
     }
 
     try:
+        logger.info(f"🔌 Attempting to connect to Core WebSocket: {CORE_WS_URL}")
         # Increase max_size to 50MB for large audio responses
         async with websockets.connect(CORE_WS_URL, max_size=50 * 1024 * 1024) as core_ws:
+            logger.info("✅ Successfully connected to Core WebSocket")
+
             async def forward_to_core():
                 """Forward client messages to Core."""
+                logger.info("⬆️  forward_to_core() started")
                 try:
                     while True:
                         msg = await websocket.receive_json()
@@ -1991,6 +1995,7 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
             
             async def forward_to_client():
                 """Forward Core messages to client."""
+                logger.info("⬇️  forward_to_client() started")
                 try:
                     async for message in core_ws:
                         data = json.loads(message)
@@ -2012,59 +2017,103 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                                 logger.info(f"Captured assistant response: {assistant_response[:50]}...")
 
                             # Trigger memory extraction when we have both messages
-                            if (conversation_state["last_user_msg"] and
-                                conversation_state["last_assistant_msg"] and
-                                conversation_state["current_char_id"]):
+                            user_msg = conversation_state.get("last_user_msg")
+                            asst_msg = conversation_state.get("last_assistant_msg")
+                            char_id = conversation_state.get("current_char_id")
 
-                                chat_id_uuid = None
-                                if conversation_state["current_chat_id"]:
+                            if user_msg and asst_msg and char_id:
+                                try:
+                                    # Safely convert IDs to UUIDs
+                                    chat_id_uuid = None
+                                    if conversation_state.get("current_chat_id"):
+                                        try:
+                                            chat_id_uuid = UUID(conversation_state["current_chat_id"])
+                                        except (ValueError, TypeError) as e:
+                                            logger.warning(f"Invalid chat_id UUID: {conversation_state.get('current_chat_id')}: {e}")
+
                                     try:
-                                        chat_id_uuid = UUID(conversation_state["current_chat_id"])
-                                    except (ValueError, TypeError):
-                                        pass
+                                        char_id_uuid = UUID(char_id)
+                                    except (ValueError, TypeError) as e:
+                                        logger.error(f"Invalid character_id UUID: {char_id}: {e}")
+                                        raise
 
-                                char_id_uuid = UUID(conversation_state["current_char_id"])
+                                    try:
+                                        user_id_uuid = UUID(user_id)
+                                    except (ValueError, TypeError) as e:
+                                        logger.error(f"Invalid user_id UUID: {user_id}: {e}")
+                                        raise
 
-                                logger.info(
-                                    f"Triggering memory extraction: "
-                                    f"user='{conversation_state['last_user_msg'][:30]}...', "
-                                    f"assistant='{conversation_state['last_assistant_msg'][:30]}...'"
-                                )
-
-                                # Fire-and-forget memory extraction task
-                                asyncio.create_task(
-                                    _extract_and_notify_memory(
-                                        websocket=websocket,
-                                        user_id=UUID(user_id),
-                                        character_id=char_id_uuid,
-                                        chat_id=chat_id_uuid,
-                                        user_message=conversation_state["last_user_msg"],
-                                        assistant_response=conversation_state["last_assistant_msg"],
+                                    logger.info(
+                                        f"🧠 Triggering memory extraction: "
+                                        f"user='{user_msg[:30] if user_msg else ''}...', "
+                                        f"assistant='{asst_msg[:30] if asst_msg else ''}...'"
                                     )
-                                )
 
-                                # Reset for next turn
-                                conversation_state["last_user_msg"] = None
-                                conversation_state["last_assistant_msg"] = None
+                                    # Fire-and-forget memory extraction task
+                                    asyncio.create_task(
+                                        _extract_and_notify_memory(
+                                            websocket=websocket,
+                                            user_id=user_id_uuid,
+                                            character_id=char_id_uuid,
+                                            chat_id=chat_id_uuid,
+                                            user_message=user_msg,
+                                            assistant_response=asst_msg,
+                                        )
+                                    )
+
+                                    # Reset for next turn
+                                    conversation_state["last_user_msg"] = None
+                                    conversation_state["last_assistant_msg"] = None
+
+                                except Exception as mem_err:
+                                    logger.error(f"Failed to trigger memory extraction: {mem_err}")
 
                         # Forward message to client
                         await websocket.send_json(data)
                 except Exception as e:
-                    logger.error(f"Forward to client error: {e}")
+                    logger.error(f"Forward to client error: {e}", exc_info=True)
+
+            logger.info("🚀 Starting forward_to_core() and forward_to_client() tasks...")
+            try:
+                await asyncio.gather(
+                    forward_to_core(),
+                    forward_to_client(),
+                )
+                logger.info("✅ Both forward tasks completed")
+            except Exception as gather_err:
+                logger.error(f"❌ Error in asyncio.gather(): {gather_err}", exc_info=True)
+                raise
             
-            await asyncio.gather(
-                forward_to_core(),
-                forward_to_client(),
-            )
-            
+    except websockets.exceptions.WebSocketException as e:
+        logger.error(f"Core WebSocket connection error: {type(e).__name__}: {e}", exc_info=True)
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": f"Failed to connect to AI core: {e}"
+            })
+            await websocket.send_json({
+                "type": "status",
+                "message": "Falling back to text-only mode",
+                "mode": "text-only"
+            })
+            await _text_only_mode(websocket, user_id)
+        except Exception as fallback_err:
+            logger.error(f"Failed to fallback to text-only mode: {fallback_err}")
     except Exception as e:
-        logger.error(f"Core proxy error: {e}")
-        await websocket.send_json({
-            "type": "status",
-            "message": f"Lost connection to AI core: {e}",
-            "mode": "text-only"
-        })
-        await _text_only_mode(websocket, user_id)
+        logger.error(f"Core proxy error: {type(e).__name__}: {e}", exc_info=True)
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": f"Core proxy error: {str(e)[:200]}"
+            })
+            await websocket.send_json({
+                "type": "status",
+                "message": "Falling back to text-only mode",
+                "mode": "text-only"
+            })
+            await _text_only_mode(websocket, user_id)
+        except Exception as fallback_err:
+            logger.error(f"Failed to fallback to text-only mode: {fallback_err}")
 
 
 async def _text_only_mode(websocket: WebSocket, user_id: str):
