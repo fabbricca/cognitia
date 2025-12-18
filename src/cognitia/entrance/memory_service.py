@@ -687,9 +687,11 @@ async def ollama_llm_caller(prompt: str) -> str:
             logger.debug(f"Ollama response status: {response.status_code}")
             response.raise_for_status()
             data = response.json()
+            logger.debug(f"Ollama full response keys: {data.keys()}")
+            logger.debug(f"Ollama full response: {data}")
             response_text = data.get("response", "{}")
-            logger.debug(f"Ollama returned {len(response_text)} chars")
-            return response_text
+            logger.debug(f"Ollama returned {len(response_text)} chars: {response_text[:200] if response_text else 'EMPTY'}")
+            return response_text if response_text else "{}"
     except Exception as e:
         logger.error(f"Ollama extraction call failed: {e}", exc_info=True)
         return '{}'
