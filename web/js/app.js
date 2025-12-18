@@ -1076,6 +1076,7 @@ class CognitiaApp {
             if (actionsBtn && actionsMenu) {
                 actionsBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
+                    console.log('Actions menu clicked for message:', messageId);
                     // Close any other open menus
                     document.querySelectorAll('.message-actions-menu.show').forEach(m => {
                         if (m !== actionsMenu) m.classList.remove('show');
@@ -1088,6 +1089,7 @@ class CognitiaApp {
                 if (deleteSingleBtn) {
                     deleteSingleBtn.addEventListener('click', (e) => {
                         e.stopPropagation();
+                        console.log('Delete single clicked for message:', messageId);
                         actionsMenu.classList.remove('show');
                         this.showDeleteConfirmation(messageId, 'single');
                     });
@@ -1098,10 +1100,13 @@ class CognitiaApp {
                 if (deleteAfterBtn) {
                     deleteAfterBtn.addEventListener('click', (e) => {
                         e.stopPropagation();
+                        console.log('Delete after clicked for message:', messageId);
                         actionsMenu.classList.remove('show');
                         this.showDeleteConfirmation(messageId, 'after');
                     });
                 }
+            } else {
+                console.warn('Message actions elements not found for message:', messageId);
             }
         }
 
@@ -2831,9 +2836,11 @@ class CognitiaApp {
     // =========================================================================
 
     showDeleteConfirmation(messageId, deleteType) {
+        console.log('showDeleteConfirmation called:', messageId, deleteType);
         const modal = document.getElementById('deleteMessageModal');
         if (!modal) {
             // Create modal if it doesn't exist
+            console.log('Creating delete modal');
             this.createDeleteModal();
             return this.showDeleteConfirmation(messageId, deleteType);
         }
@@ -2854,6 +2861,7 @@ class CognitiaApp {
         confirmBtn.dataset.messageId = messageId;
         confirmBtn.dataset.deleteType = deleteType;
 
+        console.log('Showing modal');
         modal.classList.add('show');
     }
 

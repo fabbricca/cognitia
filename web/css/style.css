@@ -1253,6 +1253,90 @@ body {
   background: var(--bg-secondary);
 }
 
+/* Delete Message Modal */
+#deleteMessageModal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+#deleteMessageModal.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+#deleteMessageModal .delete-modal-content {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  max-width: 400px;
+  width: 90%;
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border-color);
+  transform: scale(0.9);
+  transition: transform 0.2s ease;
+}
+
+#deleteMessageModal.show .delete-modal-content {
+  transform: scale(1);
+}
+
+#deleteMessageModal .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+#deleteMessageModal .modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+#deleteMessageModal .modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+#deleteMessageModal .modal-close:hover {
+  color: var(--text-primary);
+}
+
+#deleteMessageModal .modal-body {
+  padding: 20px;
+}
+
+#deleteMessageModal .delete-message-text {
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+#deleteMessageModal .modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color);
+}
+
 /* Audio message */
 .audio-message {
   display: flex;
