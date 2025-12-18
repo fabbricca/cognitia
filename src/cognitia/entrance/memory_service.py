@@ -157,7 +157,7 @@ class MemoryService:
 
             logger.info("📤 Calling LLM for memory extraction...")
             response = await self.llm_caller(prompt)
-            logger.info(f"📥 LLM response received: {response[:200]}...")
+            logger.info(f"📥 LLM response received ({len(response)} chars): {response[:500]}...")
 
             # Parse JSON response
             try:
@@ -173,41 +173,64 @@ class MemoryService:
 
             # Store extracted facts
             facts = extraction.get("facts", [])
+            logger.info(f"📝 Processing {len(facts)} facts from LLM response")
             for fact in facts:
-                await self._store_fact(
-                    session,
-                    user_id=user_id,
-                    character_id=character_id,
-                    category=fact.get("category", "personal"),
-                    key=fact.get("key", ""),
-                    value=fact.get("value", ""),
-                    confidence=fact.get("confidence", 0.8),
-                )
-                result["facts_extracted"] += 1
+                # Validate fact has required fields
+                fact_key = fact.get("key", "").strip()
+                fact_value = fact.get("value", "").strip()
+
+                if not fact_key or not fact_value:
+                    logger.warning(f"⚠️  Skipping invalid fact (missing key or value): {fact}")
+                    continue
+
+                try:
+                    await self._store_fact(
+                        session,
+                        user_id=user_id,
+                        character_id=character_id,
+                        category=fact.get("category", "personal"),
+                        key=fact_key,
+                        value=fact_value,
+                        confidence=fact.get("confidence", 0.8),
+                    )
+                    result["facts_extracted"] += 1
+                    logger.debug(f"✅ Stored fact: {fact_key} = {fact_value}")
+                except Exception as fact_err:
+                    logger.error(f"❌ Failed to store fact {fact_key}: {fact_err}", exc_info=True)
 
             # Create episodic memory if important
             if extraction.get("should_create_memory", False) and importance > 0.5:
-                await self._create_episodic_memory(
+                try:
+                    logger.info(f"💾 Creating episodic memory (importance={importance})")
+                    await self._create_episodic_memory(
+                        session,
+                        user_id=user_id,
+                        character_id=character_id,
+                        chat_id=chat_id,
+                        summary=extraction.get("memory_summary", f"Conversation about: {user_message[:50]}"),
+                        content=f"User: {user_message}\nAssistant: {assistant_response}",
+                        emotional_tone=result["emotional_tone"],
+                        importance=importance,
+                    )
+                    result["memory_created"] = True
+                    logger.debug("✅ Episodic memory created")
+                except Exception as mem_err:
+                    logger.error(f"❌ Failed to create episodic memory: {mem_err}", exc_info=True)
+
+            # Update relationship
+            try:
+                logger.info(f"🤝 Updating relationship (emotional_tone={result['emotional_tone']}, facts_shared={len(facts)})")
+                trust_change = await self._update_relationship_on_exchange(
                     session,
                     user_id=user_id,
                     character_id=character_id,
-                    chat_id=chat_id,
-                    summary=extraction.get("memory_summary", f"Conversation about: {user_message[:50]}"),
-                    content=f"User: {user_message}\nAssistant: {assistant_response}",
                     emotional_tone=result["emotional_tone"],
-                    importance=importance,
+                    facts_shared=len(facts),
                 )
-                result["memory_created"] = True
-
-            # Update relationship
-            trust_change = await self._update_relationship_on_exchange(
-                session,
-                user_id=user_id,
-                character_id=character_id,
-                emotional_tone=result["emotional_tone"],
-                facts_shared=len(facts),
-            )
-            result["trust_change"] = trust_change
+                result["trust_change"] = trust_change
+                logger.debug(f"✅ Trust changed by {trust_change}")
+            except Exception as rel_err:
+                logger.error(f"❌ Failed to update relationship: {rel_err}", exc_info=True)
 
             logger.info(
                 f"✨ Memory extraction complete: "
