@@ -349,9 +349,12 @@ class MemoryService:
                 character_id=character_id,
                 stage="stranger",
                 trust_level=0,
+                total_conversations=0,
+                total_messages=0,
                 first_conversation=datetime.utcnow(),
             )
             session.add(relationship)
+            await session.flush()  # Ensure defaults are applied
             logger.info(f"Created new relationship for user {user_id} with character {character_id}")
 
         return relationship
