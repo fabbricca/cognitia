@@ -1858,7 +1858,15 @@ async def websocket_endpoint(websocket: WebSocket):
 async def _proxy_to_core(websocket: WebSocket, user_id: str):
     """Proxy WebSocket communication to Core."""
     from .database import get_session, Character, Chat, Message
-    
+
+    # Shared state for memory extraction
+    conversation_state = {
+        "last_user_msg": None,
+        "last_assistant_msg": None,
+        "current_chat_id": None,
+        "current_char_id": None,
+    }
+
     try:
         # Increase max_size to 50MB for large audio responses
         async with websockets.connect(CORE_WS_URL, max_size=50 * 1024 * 1024) as core_ws:
@@ -1868,11 +1876,11 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                     while True:
                         msg = await websocket.receive_json()
                         msg_type = msg.get("type", "")
-                        
+
                         if msg_type == "ping":
                             await websocket.send_json({"type": "pong"})
                             continue
-                        
+
                         # Handle character_switch locally - do NOT forward to Core
                         if msg_type == "character_switch":
                             char_id = msg.get("characterId")
@@ -1888,18 +1896,28 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                                             "message": f"Switched to {char.name}"
                                         })
                             continue  # Don't forward to Core
-                        
+
                         # Only forward text/audio messages to Core
                         if msg_type not in ("text", "audio", "phone"):
                             logger.warning(f"Ignoring unknown message type: {msg_type}")
                             continue
-                        
-                        # Enrich message with context
-                        msg["user_id"] = user_id
-                        
-                        # Get character info
+
+                        # Capture user message for memory extraction
+                        user_message_text = msg.get("message") or msg.get("data", "")
                         char_id = msg.get("characterId")
                         chat_id = msg.get("chatId")
+
+                        # Store in shared state for memory extraction
+                        if user_message_text and char_id:
+                            conversation_state["last_user_msg"] = user_message_text
+                            conversation_state["current_chat_id"] = chat_id
+                            conversation_state["current_char_id"] = char_id
+                            logger.info(f"Captured user message for memory: {user_message_text[:50]}...")
+
+                        # Enrich message with context
+                        msg["user_id"] = user_id
+
+                        # Get character info
                         
                         if char_id:
                             async with get_session() as session:
@@ -1973,11 +1991,6 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
             
             async def forward_to_client():
                 """Forward Core messages to client."""
-                last_user_msg = None
-                last_assistant_msg = None
-                current_chat_id = None
-                current_char_id = None
-
                 try:
                     async for message in core_ws:
                         data = json.loads(message)
@@ -1986,15 +1999,38 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
 
                         # Track conversation for memory extraction
                         if msg_type == 'user_transcription':
-                            last_user_msg = data.get('content')
-                            current_chat_id = data.get('chat_id')
-                            current_char_id = data.get('character_id')
+                            # For audio messages, update with transcribed text
+                            transcribed_text = data.get('content')
+                            if transcribed_text:
+                                conversation_state["last_user_msg"] = transcribed_text
+                                logger.info(f"Updated user message from transcription: {transcribed_text[:50]}...")
+
                         elif msg_type == 'text_complete':
-                            last_assistant_msg = data.get('content')
-                            # Trigger memory extraction when conversation turn completes
-                            if last_user_msg and last_assistant_msg and current_char_id:
-                                chat_id_uuid = UUID(current_chat_id) if current_chat_id else None
-                                char_id_uuid = UUID(current_char_id)
+                            assistant_response = data.get('content', '')
+                            if assistant_response:
+                                conversation_state["last_assistant_msg"] = assistant_response
+                                logger.info(f"Captured assistant response: {assistant_response[:50]}...")
+
+                            # Trigger memory extraction when we have both messages
+                            if (conversation_state["last_user_msg"] and
+                                conversation_state["last_assistant_msg"] and
+                                conversation_state["current_char_id"]):
+
+                                chat_id_uuid = None
+                                if conversation_state["current_chat_id"]:
+                                    try:
+                                        chat_id_uuid = UUID(conversation_state["current_chat_id"])
+                                    except (ValueError, TypeError):
+                                        pass
+
+                                char_id_uuid = UUID(conversation_state["current_char_id"])
+
+                                logger.info(
+                                    f"Triggering memory extraction: "
+                                    f"user='{conversation_state['last_user_msg'][:30]}...', "
+                                    f"assistant='{conversation_state['last_assistant_msg'][:30]}...'"
+                                )
+
                                 # Fire-and-forget memory extraction task
                                 asyncio.create_task(
                                     _extract_and_notify_memory(
@@ -2002,13 +2038,14 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
                                         user_id=UUID(user_id),
                                         character_id=char_id_uuid,
                                         chat_id=chat_id_uuid,
-                                        user_message=last_user_msg,
-                                        assistant_response=last_assistant_msg,
+                                        user_message=conversation_state["last_user_msg"],
+                                        assistant_response=conversation_state["last_assistant_msg"],
                                     )
                                 )
+
                                 # Reset for next turn
-                                last_user_msg = None
-                                last_assistant_msg = None
+                                conversation_state["last_user_msg"] = None
+                                conversation_state["last_assistant_msg"] = None
 
                         # Forward message to client
                         await websocket.send_json(data)

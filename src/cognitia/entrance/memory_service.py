@@ -141,8 +141,12 @@ class MemoryService:
 
         # Skip if no LLM caller
         if not self.llm_caller:
-            logger.debug("No LLM caller configured, skipping memory extraction")
+            logger.warning("⚠️  No LLM caller configured for memory extraction - skipping!")
             return result
+
+        logger.info(f"🧠 Starting memory extraction: user_id={user_id}, char_id={character_id}")
+        logger.debug(f"User said: {user_message[:100]}...")
+        logger.debug(f"Assistant said: {assistant_response[:100]}...")
 
         try:
             # Call LLM for extraction
@@ -150,13 +154,18 @@ class MemoryService:
                 user_message=user_message,
                 assistant_response=assistant_response
             )
+
+            logger.info("📤 Calling LLM for memory extraction...")
             response = await self.llm_caller(prompt)
-            
+            logger.info(f"📥 LLM response received: {response[:200]}...")
+
             # Parse JSON response
             try:
                 extraction = json.loads(response)
-            except json.JSONDecodeError:
-                logger.warning(f"Failed to parse extraction response: {response}")
+                logger.info(f"✅ Parsed extraction: {extraction}")
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ Failed to parse extraction response as JSON: {e}")
+                logger.error(f"Raw response was: {response[:500]}")
                 return result
 
             result["emotional_tone"] = extraction.get("emotional_tone", "neutral")
@@ -200,8 +209,15 @@ class MemoryService:
             )
             result["trust_change"] = trust_change
 
+            logger.info(
+                f"✨ Memory extraction complete: "
+                f"{result['facts_extracted']} facts, "
+                f"memory_created={result['memory_created']}, "
+                f"trust_change={result['trust_change']}"
+            )
+
         except Exception as e:
-            logger.error(f"Memory extraction error: {e}")
+            logger.error(f"❌ Memory extraction failed with exception: {e}", exc_info=True)
 
         return result
 
