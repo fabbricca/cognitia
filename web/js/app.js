@@ -2917,9 +2917,9 @@ class CognitiaApp {
         try {
             let result;
             if (deleteType === 'single') {
-                result = await this.api.deleteMessage(this.currentChat.id, messageId);
+                result = await api.deleteMessage(this.currentChat.id, messageId);
             } else {
-                result = await this.api.deleteMessageAndAfter(this.currentChat.id, messageId);
+                result = await api.deleteMessageAndAfter(this.currentChat.id, messageId);
             }
 
             if (result.success) {
