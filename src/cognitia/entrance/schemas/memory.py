@@ -4,7 +4,7 @@ from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # =============================================================================
@@ -21,6 +21,14 @@ class UserFactBase(BaseModel):
 class UserFactCreate(UserFactBase):
     """Schema for creating a user fact."""
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class UserFactUpdate(BaseModel):
+    """Schema for updating a user fact."""
+    category: Optional[str] = Field(None, description="Fact category")
+    key: Optional[str] = Field(None, min_length=1, max_length=255)
+    value: Optional[str] = Field(None, min_length=1)
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
 
 
 class UserFactResponse(UserFactBase):
@@ -55,6 +63,14 @@ class MemoryBase(BaseModel):
 class MemoryCreate(MemoryBase):
     """Schema for creating a memory."""
     importance: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class MemoryUpdate(BaseModel):
+    """Schema for updating a memory."""
+    content: Optional[str] = None
+    summary: Optional[str] = None
+    emotional_tone: Optional[str] = None
+    importance: Optional[float] = Field(None, ge=0.0, le=1.0)
 
 
 class MemoryResponse(MemoryBase):
@@ -114,8 +130,34 @@ class RelationshipResponse(BaseModel):
     milestones: List[Milestone] = []
     created_at: datetime
 
+    @field_validator('inside_jokes', mode='before')
+    @classmethod
+    def validate_inside_jokes(cls, v):
+        """Convert None to empty list and parse JSONB data."""
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return v
+        return []
+    
+    @field_validator('milestones', mode='before')
+    @classmethod
+    def validate_milestones(cls, v):
+        """Convert None to empty list and parse JSONB data."""
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return v
+        return []
+
     class Config:
         from_attributes = True
+
+
+class RelationshipUpdate(BaseModel):
+    """Schema for updating relationship status."""
+    stage: Optional[str] = Field(None, description="Relationship stage")
+    trust_level: Optional[int] = Field(None, ge=0, le=100)
 
 
 class RelationshipListResponse(BaseModel):

@@ -431,6 +431,139 @@ export class ApiClient {
     async reloadCoreModel(modelType) {
         return this.request('POST', `/api/core/reload-model?model_type=${modelType}`);
     }
+
+    // ==========================================================================
+    // Memory System Endpoints
+    // ==========================================================================
+
+    /**
+     * Get full memory context for a character.
+     * @param {string} characterId - The character ID
+     * @returns {Promise<object>} - Memory context (relationship, facts, memories)
+     */
+    async getMemoryContext(characterId) {
+        return this.request('GET', `/api/memory/${characterId}/context`);
+    }
+
+    /**
+     * Get all user facts for a character.
+     * @param {string} characterId - The character ID
+     * @param {string} category - Optional category filter
+     * @returns {Promise<object>} - List of facts
+     */
+    async getUserFacts(characterId, category = null) {
+        const url = category 
+            ? `/api/memory/${characterId}/facts?category=${encodeURIComponent(category)}`
+            : `/api/memory/${characterId}/facts`;
+        return this.request('GET', url);
+    }
+
+    /**
+     * Update a user fact.
+     * @param {string} characterId - The character ID
+     * @param {string} factId - The fact ID
+     * @param {object} update - Update data {category, key, value, confidence}
+     * @returns {Promise<object>} - Updated fact
+     */
+    async updateUserFact(characterId, factId, update) {
+        return this.request('PUT', `/api/memory/${characterId}/facts/${factId}`, update);
+    }
+
+    /**
+     * Delete a user fact.
+     * @param {string} characterId - The character ID
+     * @param {string} factId - The fact ID
+     * @returns {Promise<void>}
+     */
+    async deleteUserFact(characterId, factId) {
+        return this.request('DELETE', `/api/memory/${characterId}/facts/${factId}`);
+    }
+
+    /**
+     * Get all memories for a character.
+     * @param {string} characterId - The character ID
+     * @param {string} memoryType - Optional type filter (episodic, semantic, event)
+     * @param {number} limit - Max memories to return
+     * @returns {Promise<object>} - List of memories
+     */
+    async getMemories(characterId, memoryType = null, limit = 50) {
+        let url = `/api/memory/${characterId}/memories?limit=${limit}`;
+        if (memoryType) {
+            url += `&memory_type=${encodeURIComponent(memoryType)}`;
+        }
+        return this.request('GET', url);
+    }
+
+    /**
+     * Update a memory.
+     * @param {string} characterId - The character ID
+     * @param {string} memoryId - The memory ID
+     * @param {object} update - Update data {content, summary, emotional_tone, importance}
+     * @returns {Promise<object>} - Updated memory
+     */
+    async updateMemory(characterId, memoryId, update) {
+        return this.request('PUT', `/api/memory/${characterId}/memories/${memoryId}`, update);
+    }
+
+    /**
+     * Delete a memory.
+     * @param {string} characterId - The character ID
+     * @param {string} memoryId - The memory ID
+     * @returns {Promise<void>}
+     */
+    async deleteMemory(characterId, memoryId) {
+        return this.request('DELETE', `/api/memory/${characterId}/memories/${memoryId}`);
+    }
+
+    /**
+     * Get relationship status with a character.
+     * @param {string} characterId - The character ID
+     * @returns {Promise<object>} - Relationship status
+     */
+    async getRelationship(characterId) {
+        return this.request('GET', `/api/memory/${characterId}/relationship`);
+    }
+
+    /**
+     * Update relationship status.
+     * @param {string} characterId - The character ID
+     * @param {object} update - Update data {stage, trust_level}
+     * @returns {Promise<object>} - Updated relationship
+     */
+    async updateRelationship(characterId, update) {
+        return this.request('PUT', `/api/memory/${characterId}/relationship`, update);
+    }
+
+    /**
+     * Delete an inside joke from a relationship.
+     * @param {string} characterId - The character ID
+     * @param {number} jokeIndex - The index of the joke to delete
+     * @returns {Promise<void>}
+     */
+    async deleteInsideJoke(characterId, jokeIndex) {
+        return this.request('DELETE', `/api/memory/${characterId}/relationship/inside-jokes/${jokeIndex}`);
+    }
+
+    /**
+     * Delete a milestone from a relationship.
+     * @param {string} characterId - The character ID
+     * @param {number} milestoneIndex - The index of the milestone to delete
+     * @returns {Promise<void>}
+     */
+    async deleteMilestone(characterId, milestoneIndex) {
+        return this.request('DELETE', `/api/memory/${characterId}/relationship/milestones/${milestoneIndex}`);
+    }
+
+    /**
+     * Get diary entries for a character.
+     * @param {string} characterId - The character ID
+     * @param {string} entryType - Entry type (daily, weekly, monthly)
+     * @param {number} limit - Max entries to return
+     * @returns {Promise<object>} - List of diary entries
+     */
+    async getDiaryEntries(characterId, entryType = 'daily', limit = 30) {
+        return this.request('GET', `/api/memory/${characterId}/diary?entry_type=${entryType}&limit=${limit}`);
+    }
 }
 
 // Singleton instance

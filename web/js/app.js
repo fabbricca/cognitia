@@ -186,6 +186,60 @@ class CognitiaApp {
             coreVersion: document.getElementById('core-version'),
             themeSelect: document.getElementById('theme-select'),
             
+            // Memory Modal
+            memoryBtn: document.getElementById('memory-btn'),
+            memoryModal: document.getElementById('memory-modal'),
+            closeMemoryModal: document.getElementById('close-memory-modal'),
+            memoryTabs: document.querySelectorAll('.memory-tab'),
+            memoryTabContents: document.querySelectorAll('.memory-tab-content'),
+            // Relationship tab
+            relStage: document.getElementById('rel-stage'),
+            relStageSelect: document.getElementById('rel-stage-select'),
+            relTrustBar: document.getElementById('rel-trust-bar'),
+            relTrustValue: document.getElementById('rel-trust-value'),
+            relTrustSlider: document.getElementById('rel-trust-slider'),
+            relConversations: document.getElementById('rel-conversations'),
+            relMessages: document.getElementById('rel-messages'),
+            relFirstChat: document.getElementById('rel-first-chat'),
+            editRelationshipBtn: document.getElementById('edit-relationship-btn'),
+            saveRelationshipBtn: document.getElementById('save-relationship-btn'),
+            cancelRelationshipBtn: document.getElementById('cancel-relationship-btn'),
+            insideJokesList: document.getElementById('inside-jokes-list'),
+            milestonesList: document.getElementById('milestones-list'),
+            // Facts tab
+            factsCategoryFilter: document.getElementById('facts-category-filter'),
+            addFactBtn: document.getElementById('add-fact-btn'),
+            factsList: document.getElementById('facts-list'),
+            // Memories tab
+            memoriesTypeFilter: document.getElementById('memories-type-filter'),
+            memoriesList: document.getElementById('memories-list'),
+            // Diary tab
+            diaryTypeFilter: document.getElementById('diary-type-filter'),
+            diaryList: document.getElementById('diary-list'),
+            // Fact Edit Modal
+            factEditModal: document.getElementById('fact-edit-modal'),
+            closeFactEditModal: document.getElementById('close-fact-edit-modal'),
+            factEditForm: document.getElementById('fact-edit-form'),
+            factEditId: document.getElementById('fact-edit-id'),
+            factEditTitle: document.getElementById('fact-edit-title'),
+            factEditCategory: document.getElementById('fact-edit-category'),
+            factEditKey: document.getElementById('fact-edit-key'),
+            factEditValue: document.getElementById('fact-edit-value'),
+            factEditConfidence: document.getElementById('fact-edit-confidence'),
+            cancelFactEditBtn: document.getElementById('cancel-fact-edit-btn'),
+            saveFactEditBtn: document.getElementById('save-fact-edit-btn'),
+            // Memory Edit Modal
+            memoryEditModal: document.getElementById('memory-edit-modal'),
+            closeMemoryEditModal: document.getElementById('close-memory-edit-modal'),
+            memoryEditForm: document.getElementById('memory-edit-form'),
+            memoryEditId: document.getElementById('memory-edit-id'),
+            memoryEditSummary: document.getElementById('memory-edit-summary'),
+            memoryEditContent: document.getElementById('memory-edit-content'),
+            memoryEditTone: document.getElementById('memory-edit-tone'),
+            memoryEditImportance: document.getElementById('memory-edit-importance'),
+            cancelMemoryEditBtn: document.getElementById('cancel-memory-edit-btn'),
+            saveMemoryEditBtn: document.getElementById('save-memory-edit-btn'),
+            
             // Toast container
             toastContainer: document.getElementById('toast-container')
         };
@@ -358,11 +412,107 @@ class CognitiaApp {
             this.setTheme(e.target.value);
         });
 
+        // Memory modal
+        this.elements.memoryBtn?.addEventListener('click', () => {
+            this.showMemoryModal();
+        });
+        
+        this.elements.closeMemoryModal?.addEventListener('click', () => {
+            this.hideMemoryModal();
+        });
+        
+        this.elements.memoryModal?.addEventListener('click', (e) => {
+            if (e.target === this.elements.memoryModal) {
+                this.hideMemoryModal();
+            }
+        });
+        
+        // Memory tabs
+        this.elements.memoryTabs?.forEach(tab => {
+            tab.addEventListener('click', () => {
+                this.switchMemoryTab(tab.dataset.tab);
+            });
+        });
+        
+        // Relationship edit
+        this.elements.editRelationshipBtn?.addEventListener('click', () => {
+            this.toggleRelationshipEdit(true);
+        });
+        
+        this.elements.saveRelationshipBtn?.addEventListener('click', () => {
+            this.saveRelationship();
+        });
+        
+        this.elements.cancelRelationshipBtn?.addEventListener('click', () => {
+            this.toggleRelationshipEdit(false);
+            this.loadRelationship(); // Reset to saved values
+        });
+        
+        // Facts filter
+        this.elements.factsCategoryFilter?.addEventListener('change', () => {
+            this.loadFacts();
+        });
+        
+        this.elements.addFactBtn?.addEventListener('click', () => {
+            this.showFactEditModal(null); // null = new fact
+        });
+        
+        // Memories filter
+        this.elements.memoriesTypeFilter?.addEventListener('change', () => {
+            this.loadMemories();
+        });
+        
+        // Diary filter
+        this.elements.diaryTypeFilter?.addEventListener('change', () => {
+            this.loadDiary();
+        });
+        
+        // Fact edit modal
+        this.elements.closeFactEditModal?.addEventListener('click', () => {
+            this.hideFactEditModal();
+        });
+        
+        this.elements.cancelFactEditBtn?.addEventListener('click', () => {
+            this.hideFactEditModal();
+        });
+        
+        this.elements.saveFactEditBtn?.addEventListener('click', () => {
+            this.saveFact();
+        });
+        
+        this.elements.factEditModal?.addEventListener('click', (e) => {
+            if (e.target === this.elements.factEditModal) {
+                this.hideFactEditModal();
+            }
+        });
+        
+        // Memory edit modal
+        this.elements.closeMemoryEditModal?.addEventListener('click', () => {
+            this.hideMemoryEditModal();
+        });
+        
+        this.elements.cancelMemoryEditBtn?.addEventListener('click', () => {
+            this.hideMemoryEditModal();
+        });
+        
+        this.elements.saveMemoryEditBtn?.addEventListener('click', () => {
+            this.saveMemory();
+        });
+        
+        this.elements.memoryEditModal?.addEventListener('click', (e) => {
+            if (e.target === this.elements.memoryEditModal) {
+                this.hideMemoryEditModal();
+            }
+        });
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 this.hideCharacterModal();
                 this.hideSettingsModal();
+                this.hideMemoryModal();
+                this.hideFactEditModal();
+                this.hideMemoryEditModal();
                 if (this.isInCall) this.endCall();
             }
         });
@@ -535,6 +685,10 @@ class CognitiaApp {
 
         this.ws.on('user_transcription', (msg) => {
             this.handleUserTranscription(msg);
+        });
+
+        this.ws.on('memory_update', (msg) => {
+            this.handleMemoryUpdate(msg);
         });
 
         this.ws.on('status', (msg) => {
@@ -848,6 +1002,17 @@ class CognitiaApp {
                 </div>
             `;
             isAudioMessage = true;
+        } else if (audioUrl && audioUrl.trim()) {
+            // Has audio URL - display as audio-only message
+            bubbleHtml = `
+                <div class="message-bubble audio-message">
+                    ${this.createAudioPlayerHTML(audioUrl)}
+                    <div class="message-meta">
+                        <span class="message-time">${timeStr}</span>
+                    </div>
+                </div>
+            `;
+            isAudioMessage = true;
         } else {
             // Regular text content
             bubbleHtml = `
@@ -858,22 +1023,13 @@ class CognitiaApp {
                     </div>
                 </div>
             `;
-            
-            if (audioUrl) {
-                bubbleHtml += `
-                    <div class="message-bubble audio-message">
-                        ${this.createAudioPlayerHTML(audioUrl)}
-                    </div>
-                `;
-                isAudioMessage = true;
-            }
         }
 
         div.innerHTML = avatarHtml + bubbleHtml;
-        
+
         if (this.elements.messagesContainer) {
             this.elements.messagesContainer.appendChild(div);
-            
+
             // Initialize audio player if this is an audio message
             if (isAudioMessage) {
                 const audioMessage = div.querySelector('.audio-message');
@@ -881,7 +1037,7 @@ class CognitiaApp {
                     this.initAudioPlayer(audioMessage);
                 }
             }
-            
+
             this.scrollToBottom();
         }
         return div;
@@ -1169,22 +1325,58 @@ class CognitiaApp {
         // Backend transcribed user's audio - now save the message with text + audio
         if (msg.content && this.pendingUserAudio && this.currentChat) {
             const { audioDataUri } = this.pendingUserAudio;
-            
+
             // Save message with transcribed text in content, audio in audio_url
             api.createMessage(
-                this.currentChat.id, 
+                this.currentChat.id,
                 msg.content,  // Transcribed text for memory
-                'user', 
+                'user',
                 audioDataUri  // Audio data URI for playback
             ).catch(console.error);
-            
+
             // Add to local messages array with text
             this.messages.push({ role: 'user', content: msg.content });
-            
+
             // Clear pending audio
             this.pendingUserAudio = null;
-            
+
             console.log('Saved user audio message with transcription:', msg.content);
+        }
+    }
+
+    handleMemoryUpdate(msg) {
+        // Memory was extracted and saved - refresh UI if memory modal is open
+        console.log('Memory update received:', msg);
+
+        if (msg.facts_extracted > 0 || msg.memory_created) {
+            // Show subtle notification
+            const summary = [];
+            if (msg.facts_extracted > 0) {
+                summary.push(`${msg.facts_extracted} new fact${msg.facts_extracted > 1 ? 's' : ''}`);
+            }
+            if (msg.memory_created) {
+                summary.push('new memory');
+            }
+            if (msg.trust_change > 0) {
+                summary.push(`+${msg.trust_change} trust`);
+            }
+
+            // Only show toast if not too spammy
+            if (msg.facts_extracted > 0 || msg.memory_created) {
+                this.showToast(`Learned: ${summary.join(', ')}`, 'info', 3000);
+            }
+
+            // Refresh memory tab if it's currently open
+            if (this.elements.memoryModal?.classList.contains('active')) {
+                const activeTab = document.querySelector('.memory-tab.active')?.dataset?.tab;
+                if (activeTab === 'facts') {
+                    this.loadFacts();
+                } else if (activeTab === 'memories') {
+                    this.loadMemories();
+                } else if (activeTab === 'relationship') {
+                    this.loadRelationship();
+                }
+            }
         }
     }
 
@@ -1696,11 +1888,14 @@ class CognitiaApp {
             select.remove(1);
         }
         
+        // Extract models array from response object
+        const models = rvcModels?.models || rvcModels || [];
+        
         // Add available RVC models
-        if (rvcModels && rvcModels.length > 0) {
-            rvcModels.forEach(model => {
+        if (models && models.length > 0) {
+            models.forEach(model => {
                 const option = document.createElement('option');
-                option.value = model.name;
+                option.value = model.model_path || model.name;
                 option.textContent = model.name;
                 select.appendChild(option);
             });
@@ -2059,6 +2254,498 @@ class CognitiaApp {
                 setTimeout(() => document.addEventListener('click', closeOnClickOutside), 100);
             }
         }
+    }
+
+    // ==========================================================================
+    // Memory Panel Methods
+    // ==========================================================================
+
+    async showMemoryModal() {
+        if (!this.currentCharacter) {
+            this.showToast('Please select a character first', 'warning');
+            return;
+        }
+        
+        this.elements.memoryModal?.classList.add('active');
+        
+        // Load initial data
+        await this.loadRelationship();
+        this.switchMemoryTab('relationship');
+    }
+    
+    hideMemoryModal() {
+        this.elements.memoryModal?.classList.remove('active');
+    }
+    
+    switchMemoryTab(tabName) {
+        // Update tab buttons
+        this.elements.memoryTabs?.forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.tab === tabName);
+        });
+        
+        // Update tab contents
+        this.elements.memoryTabContents?.forEach(content => {
+            content.classList.toggle('active', content.id === `tab-${tabName}`);
+        });
+        
+        // Load data for the active tab
+        switch (tabName) {
+            case 'relationship':
+                this.loadRelationship();
+                break;
+            case 'facts':
+                this.loadFacts();
+                break;
+            case 'memories':
+                this.loadMemories();
+                break;
+            case 'diary':
+                this.loadDiary();
+                break;
+        }
+    }
+    
+    async loadRelationship() {
+        if (!this.currentCharacter) return;
+        
+        try {
+            const relationship = await api.getRelationship(this.currentCharacter.id);
+            
+            // Update display
+            this.elements.relStage.textContent = (relationship.stage || 'stranger').replace('_', ' ');
+            this.elements.relStageSelect.value = relationship.stage || 'stranger';
+            this.elements.relTrustBar.style.width = `${relationship.trust_level || 0}%`;
+            this.elements.relTrustValue.textContent = relationship.trust_level || 0;
+            this.elements.relTrustSlider.value = relationship.trust_level || 0;
+            this.elements.relConversations.textContent = relationship.total_conversations || 0;
+            this.elements.relMessages.textContent = relationship.total_messages || 0;
+            this.elements.relFirstChat.textContent = relationship.first_conversation 
+                ? new Date(relationship.first_conversation).toLocaleDateString()
+                : '-';
+            
+            // Load inside jokes
+            this.renderInsideJokes(relationship.inside_jokes || []);
+            
+            // Load milestones
+            this.renderMilestones(relationship.milestones || []);
+            
+        } catch (error) {
+            console.error('Failed to load relationship:', error);
+            this.showToast('Failed to load relationship data', 'error');
+        }
+    }
+    
+    renderInsideJokes(jokes) {
+        const container = this.elements.insideJokesList;
+        if (!container) return;
+        
+        if (jokes.length === 0) {
+            container.innerHTML = '<p class="empty-message">No inside jokes yet</p>';
+            return;
+        }
+        
+        container.innerHTML = jokes.map((joke, index) => `
+            <div class="joke-item memory-item">
+                <div class="memory-item-content">
+                    <div class="joke-text">"${this.escapeHtml(joke.joke)}"</div>
+                    <div class="joke-context">${this.escapeHtml(joke.context)}</div>
+                    <div class="joke-date">${joke.created_at ? new Date(joke.created_at).toLocaleDateString() : ''}</div>
+                </div>
+                <div class="memory-item-actions">
+                    <button class="btn-icon delete" onclick="app.deleteInsideJoke(${index})" title="Delete">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    renderMilestones(milestones) {
+        const container = this.elements.milestonesList;
+        if (!container) return;
+        
+        if (milestones.length === 0) {
+            container.innerHTML = '<p class="empty-message">No milestones yet</p>';
+            return;
+        }
+        
+        container.innerHTML = milestones.map((milestone, index) => `
+            <div class="milestone-item memory-item">
+                <div class="memory-item-content">
+                    <div class="milestone-name">${this.escapeHtml(milestone.name?.replace('_', ' ') || '')}</div>
+                    <div class="milestone-description">${this.escapeHtml(milestone.description || '')}</div>
+                    <div class="milestone-date">${milestone.date ? new Date(milestone.date).toLocaleDateString() : ''}</div>
+                </div>
+                <div class="memory-item-actions">
+                    <button class="btn-icon delete" onclick="app.deleteMilestone(${index})" title="Delete">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    toggleRelationshipEdit(editing) {
+        // Toggle visibility
+        this.elements.relStage.classList.toggle('hidden', editing);
+        this.elements.relStageSelect.classList.toggle('hidden', !editing);
+        this.elements.relTrustSlider.classList.toggle('hidden', !editing);
+        
+        this.elements.editRelationshipBtn.classList.toggle('hidden', editing);
+        this.elements.saveRelationshipBtn.classList.toggle('hidden', !editing);
+        this.elements.cancelRelationshipBtn.classList.toggle('hidden', !editing);
+    }
+    
+    async saveRelationship() {
+        if (!this.currentCharacter) return;
+        
+        const update = {
+            stage: this.elements.relStageSelect.value,
+            trust_level: parseInt(this.elements.relTrustSlider.value, 10)
+        };
+        
+        try {
+            await api.updateRelationship(this.currentCharacter.id, update);
+            this.showToast('Relationship updated', 'success');
+            this.toggleRelationshipEdit(false);
+            await this.loadRelationship();
+        } catch (error) {
+            console.error('Failed to update relationship:', error);
+            this.showToast('Failed to update relationship', 'error');
+        }
+    }
+    
+    async deleteInsideJoke(index) {
+        if (!this.currentCharacter) return;
+        if (!confirm('Delete this inside joke?')) return;
+        
+        try {
+            await api.deleteInsideJoke(this.currentCharacter.id, index);
+            this.showToast('Inside joke deleted', 'success');
+            await this.loadRelationship();
+        } catch (error) {
+            console.error('Failed to delete inside joke:', error);
+            this.showToast('Failed to delete inside joke', 'error');
+        }
+    }
+    
+    async deleteMilestone(index) {
+        if (!this.currentCharacter) return;
+        if (!confirm('Delete this milestone?')) return;
+        
+        try {
+            await api.deleteMilestone(this.currentCharacter.id, index);
+            this.showToast('Milestone deleted', 'success');
+            await this.loadRelationship();
+        } catch (error) {
+            console.error('Failed to delete milestone:', error);
+            this.showToast('Failed to delete milestone', 'error');
+        }
+    }
+    
+    // Facts Management
+    async loadFacts() {
+        if (!this.currentCharacter) return;
+        
+        const category = this.elements.factsCategoryFilter?.value || '';
+        
+        try {
+            const response = await api.getUserFacts(this.currentCharacter.id, category || null);
+            this.renderFacts(response.facts || []);
+        } catch (error) {
+            console.error('Failed to load facts:', error);
+            this.showToast('Failed to load facts', 'error');
+        }
+    }
+    
+    renderFacts(facts) {
+        const container = this.elements.factsList;
+        if (!container) return;
+        
+        if (facts.length === 0) {
+            container.innerHTML = '<p class="empty-message">No facts extracted yet</p>';
+            return;
+        }
+        
+        container.innerHTML = facts.map(fact => `
+            <div class="memory-item">
+                <div class="memory-item-content">
+                    <div class="memory-item-header">
+                        <span class="memory-item-category">${this.escapeHtml(fact.category)}</span>
+                        <span class="memory-item-key">${this.escapeHtml(fact.key)}</span>
+                    </div>
+                    <div class="memory-item-value">${this.escapeHtml(fact.value)}</div>
+                    <div class="memory-item-meta">
+                        <span>Confidence: ${Math.round(fact.confidence * 100)}%</span>
+                        <span>Updated: ${new Date(fact.updated_at).toLocaleDateString()}</span>
+                    </div>
+                </div>
+                <div class="memory-item-actions">
+                    <button class="btn-icon" onclick="app.showFactEditModal('${fact.id}')" title="Edit">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                    </button>
+                    <button class="btn-icon delete" onclick="app.deleteFact('${fact.id}')" title="Delete">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+        
+        // Store facts for editing
+        this._factsCache = facts.reduce((acc, f) => { acc[f.id] = f; return acc; }, {});
+    }
+    
+    showFactEditModal(factId) {
+        const isNew = !factId;
+        
+        this.elements.factEditTitle.textContent = isNew ? 'Add Fact' : 'Edit Fact';
+        this.elements.factEditId.value = factId || '';
+        
+        if (isNew) {
+            this.elements.factEditCategory.value = 'personal';
+            this.elements.factEditKey.value = '';
+            this.elements.factEditValue.value = '';
+            this.elements.factEditConfidence.value = '1';
+        } else {
+            const fact = this._factsCache?.[factId];
+            if (fact) {
+                this.elements.factEditCategory.value = fact.category || 'personal';
+                this.elements.factEditKey.value = fact.key || '';
+                this.elements.factEditValue.value = fact.value || '';
+                this.elements.factEditConfidence.value = fact.confidence || 1;
+            }
+        }
+        
+        this.elements.factEditModal.classList.add('active');
+    }
+    
+    hideFactEditModal() {
+        this.elements.factEditModal.classList.remove('active');
+    }
+    
+    async saveFact() {
+        if (!this.currentCharacter) return;
+        
+        const factId = this.elements.factEditId.value;
+        const isNew = !factId;
+        
+        const data = {
+            category: this.elements.factEditCategory.value,
+            key: this.elements.factEditKey.value.trim(),
+            value: this.elements.factEditValue.value.trim(),
+            confidence: parseFloat(this.elements.factEditConfidence.value) || 1
+        };
+        
+        if (!data.key || !data.value) {
+            this.showToast('Please fill in key and value', 'warning');
+            return;
+        }
+        
+        try {
+            if (isNew) {
+                // Create new fact via POST
+                await api.request('POST', `/api/memory/${this.currentCharacter.id}/facts`, data);
+                this.showToast('Fact created', 'success');
+            } else {
+                await api.updateUserFact(this.currentCharacter.id, factId, data);
+                this.showToast('Fact updated', 'success');
+            }
+            
+            this.hideFactEditModal();
+            await this.loadFacts();
+        } catch (error) {
+            console.error('Failed to save fact:', error);
+            this.showToast('Failed to save fact', 'error');
+        }
+    }
+    
+    async deleteFact(factId) {
+        if (!this.currentCharacter) return;
+        if (!confirm('Delete this fact?')) return;
+        
+        try {
+            await api.deleteUserFact(this.currentCharacter.id, factId);
+            this.showToast('Fact deleted', 'success');
+            await this.loadFacts();
+        } catch (error) {
+            console.error('Failed to delete fact:', error);
+            this.showToast('Failed to delete fact', 'error');
+        }
+    }
+    
+    // Memories Management
+    async loadMemories() {
+        if (!this.currentCharacter) return;
+        
+        const memoryType = this.elements.memoriesTypeFilter?.value || '';
+        
+        try {
+            const response = await api.getMemories(this.currentCharacter.id, memoryType || null, 50);
+            this.renderMemories(response.memories || []);
+        } catch (error) {
+            console.error('Failed to load memories:', error);
+            this.showToast('Failed to load memories', 'error');
+        }
+    }
+    
+    renderMemories(memories) {
+        const container = this.elements.memoriesList;
+        if (!container) return;
+        
+        if (memories.length === 0) {
+            container.innerHTML = '<p class="empty-message">No memories created yet</p>';
+            return;
+        }
+        
+        const getImportanceClass = (importance) => {
+            if (importance >= 0.8) return 'critical';
+            if (importance >= 0.6) return 'high';
+            if (importance >= 0.4) return 'medium';
+            return 'low';
+        };
+        
+        container.innerHTML = memories.map(memory => `
+            <div class="memory-item">
+                <div class="memory-item-content">
+                    <div class="memory-item-header">
+                        <span class="memory-type-badge ${memory.memory_type}">${memory.memory_type}</span>
+                        <span class="importance-indicator">
+                            <span class="importance-dot ${getImportanceClass(memory.importance)}"></span>
+                            ${Math.round(memory.importance * 100)}%
+                        </span>
+                        ${memory.emotional_tone ? `<span class="memory-item-category">${memory.emotional_tone}</span>` : ''}
+                    </div>
+                    ${memory.summary ? `<div class="memory-item-key">${this.escapeHtml(memory.summary)}</div>` : ''}
+                    <div class="memory-item-value">${this.escapeHtml(memory.content)}</div>
+                    <div class="memory-item-meta">
+                        <span>Created: ${new Date(memory.created_at).toLocaleDateString()}</span>
+                        <span>Accessed: ${memory.access_count}x</span>
+                    </div>
+                </div>
+                <div class="memory-item-actions">
+                    <button class="btn-icon" onclick="app.showMemoryEditModal('${memory.id}')" title="Edit">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                    </button>
+                    <button class="btn-icon delete" onclick="app.deleteMemoryItem('${memory.id}')" title="Delete">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+        
+        // Store memories for editing
+        this._memoriesCache = memories.reduce((acc, m) => { acc[m.id] = m; return acc; }, {});
+    }
+    
+    showMemoryEditModal(memoryId) {
+        const memory = this._memoriesCache?.[memoryId];
+        if (!memory) return;
+        
+        this.elements.memoryEditId.value = memoryId;
+        this.elements.memoryEditSummary.value = memory.summary || '';
+        this.elements.memoryEditContent.value = memory.content || '';
+        this.elements.memoryEditTone.value = memory.emotional_tone || 'neutral';
+        this.elements.memoryEditImportance.value = memory.importance || 0.5;
+        
+        this.elements.memoryEditModal.classList.add('active');
+    }
+    
+    hideMemoryEditModal() {
+        this.elements.memoryEditModal.classList.remove('active');
+    }
+    
+    async saveMemory() {
+        if (!this.currentCharacter) return;
+        
+        const memoryId = this.elements.memoryEditId.value;
+        if (!memoryId) return;
+        
+        const data = {
+            summary: this.elements.memoryEditSummary.value.trim() || null,
+            content: this.elements.memoryEditContent.value.trim(),
+            emotional_tone: this.elements.memoryEditTone.value,
+            importance: parseFloat(this.elements.memoryEditImportance.value) || 0.5
+        };
+        
+        try {
+            await api.updateMemory(this.currentCharacter.id, memoryId, data);
+            this.showToast('Memory updated', 'success');
+            this.hideMemoryEditModal();
+            await this.loadMemories();
+        } catch (error) {
+            console.error('Failed to save memory:', error);
+            this.showToast('Failed to save memory', 'error');
+        }
+    }
+    
+    async deleteMemoryItem(memoryId) {
+        if (!this.currentCharacter) return;
+        if (!confirm('Delete this memory?')) return;
+        
+        try {
+            await api.deleteMemory(this.currentCharacter.id, memoryId);
+            this.showToast('Memory deleted', 'success');
+            await this.loadMemories();
+        } catch (error) {
+            console.error('Failed to delete memory:', error);
+            this.showToast('Failed to delete memory', 'error');
+        }
+    }
+    
+    // Diary
+    async loadDiary() {
+        if (!this.currentCharacter) return;
+        
+        const entryType = this.elements.diaryTypeFilter?.value || 'daily';
+        
+        try {
+            const response = await api.getDiaryEntries(this.currentCharacter.id, entryType, 30);
+            this.renderDiary(response.entries || []);
+        } catch (error) {
+            console.error('Failed to load diary:', error);
+            this.showToast('Failed to load diary', 'error');
+        }
+    }
+    
+    renderDiary(entries) {
+        const container = this.elements.diaryList;
+        if (!container) return;
+        
+        if (entries.length === 0) {
+            container.innerHTML = '<p class="empty-message">No diary entries yet</p>';
+            return;
+        }
+        
+        container.innerHTML = entries.map(entry => `
+            <div class="diary-item">
+                <div class="diary-date">${new Date(entry.entry_date).toLocaleDateString()} - ${entry.entry_type}</div>
+                <div class="diary-summary">${this.escapeHtml(entry.summary)}</div>
+                ${entry.highlights?.length ? `
+                    <div class="diary-highlights">
+                        ${entry.highlights.map(h => `<span class="diary-highlight">${this.escapeHtml(h)}</span>`).join('')}
+                    </div>
+                ` : ''}
+                ${entry.emotional_summary ? `<div class="diary-emotional">Mood: ${this.escapeHtml(entry.emotional_summary)}</div>` : ''}
+            </div>
+        `).join('');
     }
 
     // Utilities

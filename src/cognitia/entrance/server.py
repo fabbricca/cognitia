@@ -95,12 +95,15 @@ from .api.v2 import auth_router, users_router, characters_router, chats_router
 from .memory_service import MemoryService, memory_service
 from .schemas.memory import (
     UserFactCreate,
+    UserFactUpdate,
     UserFactResponse,
     UserFactListResponse,
+    MemoryUpdate,
     MemoryResponse,
     MemoryListResponse,
     MemorySearchRequest,
     RelationshipResponse,
+    RelationshipUpdate,
     MemoryContextResponse,
     DiaryEntryResponse,
     DiaryListResponse,
@@ -535,8 +538,12 @@ async def upload_voice_model(
             detail="index_file must have .index extension",
         )
     
-    # Create model name from character ID (ensures uniqueness)
-    model_name = f"char_{character_id}"
+    # Use original filename (without extension) as model name for better readability
+    original_name = pth_file.filename.rsplit('.', 1)[0]  # Remove .pth extension
+    # Sanitize: remove special chars, keep alphanumeric, underscore, hyphen
+    model_name = "".join(c for c in original_name if c.isalnum() or c in ('_', '-')).strip()
+    if not model_name:
+        model_name = f"char_{character_id}"  # Fallback if name is empty after sanitizing
     
     try:
         # Read file contents
@@ -594,7 +601,8 @@ async def upload_voice_model(
 @app.put("/api/characters/{character_id}/rvc-model", response_model=CharacterResponse, tags=["characters"])
 async def assign_rvc_model(
     character_id: UUID,
-    model_name: str = Body(..., embed=True),
+    rvc_model_path: str = Body(..., embed=True),
+    rvc_index_path: Optional[str] = Body(None, embed=True),
     user_id: UUID = Depends(get_user_id),
     session: AsyncSession = Depends(get_session_dep),
 ):
@@ -603,7 +611,8 @@ async def assign_rvc_model(
     
     Args:
         character_id: The character to update
-        model_name: Name of the existing RVC model (from /api/models/rvc)
+        rvc_model_path: Path to the RVC model (from /api/models/rvc)
+        rvc_index_path: Optional index path
     
     Returns:
         Updated character information
@@ -621,27 +630,29 @@ async def assign_rvc_model(
             detail="Character not found",
         )
     
-    # Verify model exists
-    rvc_paths = [
-        Path("/app/rvc_models"),  # Docker
-        Path(__file__).parent.parent.parent.parent / "rvc_models",  # Local
-    ]
+    # Extract model name from path (e.g., "rvc_models/name/file.pth" -> "name")
+    # RVC service expects just the model name, not the full path
+    model_name = rvc_model_path.split('/')[1] if '/' in rvc_model_path else rvc_model_path
     
-    model_exists = False
-    for rvc_dir in rvc_paths:
-        if rvc_dir.exists() and (rvc_dir / model_name).exists():
-            model_exists = True
-            break
+    # Verify model exists on Core server
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{CORE_URL}/rvc-models")
+            if response.status_code == 200:
+                core_models = response.json()
+                model_exists = any(m.get('name') == model_name for m in core_models)
+                if not model_exists:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"RVC model '{model_name}' not found on Core server",
+                    )
+    except httpx.RequestError as e:
+        logger.warning(f"Could not verify RVC model on Core: {e}")
+        # Continue anyway - model might exist
     
-    if not model_exists:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"RVC model '{model_name}' not found",
-        )
-    
-    # Update character
+    # Update character with just the model name (not the full path)
     character.rvc_model_path = model_name
-    character.rvc_index_path = None  # Clear index path since we're assigning existing model
+    character.rvc_index_path = rvc_index_path
     
     await session.commit()
     await session.refresh(character)
@@ -911,11 +922,42 @@ async def create_message(
             detail="Chat not found",
         )
 
+    # Handle audio data - save base64 data URIs to files
+    audio_url = data.audio_url
+    if audio_url and audio_url.startswith('data:audio/'):
+        try:
+            # Parse data URI: data:audio/wav;base64,<data>
+            header, base64_data = audio_url.split(',', 1)
+            mime_match = header.split(';')[0].split(':')[1] if ':' in header else 'audio/wav'
+            extension = mime_match.split('/')[-1]  # wav, mp3, etc.
+            
+            # Create audio directory
+            docker_path = Path("/app/web/audio")
+            local_path = Path(__file__).parent.parent.parent.parent / "web" / "audio"
+            audio_dir = docker_path if docker_path.parent.exists() else local_path
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate unique filename
+            import base64
+            audio_filename = f"{chat_id}_{uuid4()}.{extension}"
+            audio_path = audio_dir / audio_filename
+            
+            # Decode and save
+            audio_bytes = base64.b64decode(base64_data)
+            audio_path.write_bytes(audio_bytes)
+            
+            # Store URL reference instead of data
+            audio_url = f"/audio/{audio_filename}"
+            logger.debug(f"Saved audio to {audio_path}, URL: {audio_url}")
+        except Exception as e:
+            logger.error(f"Failed to save audio data: {e}")
+            audio_url = None  # Don't fail the request, just skip audio
+
     message = Message(
         chat_id=chat_id,
         role=data.role,
         content=data.content,
-        audio_url=data.audio_url,
+        audio_url=audio_url,
     )
     session.add(message)
     await session.flush()
@@ -1100,30 +1142,31 @@ async def list_rvc_models(
     List available RVC voice conversion models.
     
     These are custom voice models that can be applied on top of TTS output.
+    Fetches from the Core GPU server where RVC models are stored.
     """
     models = []
     
-    # Check RVC models directory
-    rvc_paths = [
-        Path("/app/rvc_models"),  # Docker
-        Path(__file__).parent.parent.parent.parent / "rvc_models",  # Local
-    ]
-    
-    for rvc_dir in rvc_paths:
-        if rvc_dir.exists():
-            for model_dir in rvc_dir.iterdir():
-                if model_dir.is_dir():
-                    pth_files = list(model_dir.glob("*.pth"))
-                    index_files = list(model_dir.glob("*.index"))
+    # Fetch RVC models from Core server (GPU machine has the models)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{CORE_URL}/rvc-models")
+            if response.status_code == 200:
+                core_models = response.json()
+                for model in core_models:
+                    # Build full path for the Core server
+                    model_name = model.get("name", "")
+                    pth_file = model.get("pth_file", "")
+                    index_file = model.get("index_file")
                     
-                    if pth_files:
+                    if model_name and pth_file:
                         models.append(RVCModelInfo(
-                            name=model_dir.name,
-                            model_path=str(pth_files[0]),
-                            index_path=str(index_files[0]) if index_files else None,
-                            description=f"RVC model: {model_dir.name}",
+                            name=model_name,
+                            model_path=f"rvc_models/{model_name}/{pth_file}",
+                            index_path=f"rvc_models/{model_name}/{index_file}" if index_file else None,
+                            description=f"RVC model: {model_name}",
                         ))
-            break  # Only use first existing path
+    except Exception as e:
+        logger.warning(f"Failed to fetch RVC models from Core: {e}")
     
     return RVCModelListResponse(models=models)
 
@@ -1185,7 +1228,7 @@ async def reload_core_model(
 
 
 # =============================================================================
-# Memory Extraction Helper
+# Memory Extraction Helpers
 # =============================================================================
 
 
@@ -1196,11 +1239,11 @@ async def _extract_memories_for_exchange(
 ):
     """
     Extract memories from the last user+assistant exchange in a chat.
-    
+
     Called as a background task after an assistant message is saved.
     """
     from .database import get_session
-    
+
     try:
         async with get_session() as session:
             # Get the last 2 messages (user + assistant)
@@ -1211,13 +1254,13 @@ async def _extract_memories_for_exchange(
                 .limit(2)
             )
             messages = list(result.scalars().all())
-            
+
             if len(messages) < 2:
                 return
-            
+
             # Messages are in reverse order (newest first)
             messages.reverse()
-            
+
             # Find user and assistant messages
             user_msg = None
             assistant_msg = None
@@ -1226,10 +1269,10 @@ async def _extract_memories_for_exchange(
                     user_msg = m.content
                 elif m.role == "assistant":
                     assistant_msg = m.content
-            
+
             if not user_msg or not assistant_msg:
                 return
-            
+
             # Extract memories
             result = await memory_service.extract_and_store_memories(
                 session=session,
@@ -1239,18 +1282,71 @@ async def _extract_memories_for_exchange(
                 user_message=user_msg,
                 assistant_response=assistant_msg,
             )
-            
+
             await session.commit()
-            
+
             if result.get("facts_extracted", 0) > 0 or result.get("memory_created"):
                 logger.info(
                     f"Memory extraction: {result['facts_extracted']} facts, "
                     f"memory_created={result['memory_created']}, "
                     f"trust_change={result['trust_change']}"
                 )
-                
+
     except Exception as e:
         logger.error(f"Memory extraction failed: {e}")
+
+
+async def _extract_and_notify_memory(
+    websocket: WebSocket,
+    user_id: UUID,
+    character_id: UUID,
+    chat_id: Optional[UUID],
+    user_message: str,
+    assistant_response: str,
+):
+    """
+    Extract memories and notify client via WebSocket.
+
+    Called after WebSocket conversation turns complete.
+    """
+    from .database import get_session
+
+    try:
+        async with get_session() as session:
+            # Extract memories
+            result = await memory_service.extract_and_store_memories(
+                session=session,
+                user_id=user_id,
+                character_id=character_id,
+                chat_id=chat_id,
+                user_message=user_message,
+                assistant_response=assistant_response,
+            )
+
+            await session.commit()
+
+            # Notify client if anything was extracted
+            if result.get("facts_extracted", 0) > 0 or result.get("memory_created"):
+                logger.info(
+                    f"WebSocket memory extraction: {result['facts_extracted']} facts, "
+                    f"memory_created={result['memory_created']}, "
+                    f"trust_change={result['trust_change']}"
+                )
+
+                # Send memory_update message to client
+                try:
+                    await websocket.send_json({
+                        "type": "memory_update",
+                        "facts_extracted": result.get("facts_extracted", 0),
+                        "memory_created": result.get("memory_created", False),
+                        "trust_change": result.get("trust_change", 0),
+                        "emotional_tone": result.get("emotional_tone", "neutral"),
+                    })
+                except Exception as send_err:
+                    logger.warning(f"Could not send memory_update to client: {send_err}")
+
+    except Exception as e:
+        logger.error(f"WebSocket memory extraction failed: {e}", exc_info=True)
 
 
 # =============================================================================
@@ -1358,12 +1454,19 @@ async def get_relationship(
     session: AsyncSession = Depends(get_session_dep),
 ):
     """Get relationship status with a character."""
-    relationship = await memory_service.get_relationship_status(session, user_id, character_id)
-    if not relationship:
-        # Create initial relationship
-        relationship = await memory_service.get_or_create_relationship(session, user_id, character_id)
-        await session.commit()
-    return RelationshipResponse.model_validate(relationship)
+    import traceback
+    try:
+        relationship = await memory_service.get_relationship_status(session, user_id, character_id)
+        if not relationship:
+            # Create initial relationship
+            relationship = await memory_service.get_or_create_relationship(session, user_id, character_id)
+            await session.commit()
+        logger.info(f"Relationship data: stage={relationship.stage}, inside_jokes={relationship.inside_jokes}, milestones={relationship.milestones}")
+        return RelationshipResponse.model_validate(relationship)
+    except Exception as e:
+        logger.error(f"Error in get_relationship: {e}")
+        logger.error(traceback.format_exc())
+        raise
 
 
 @app.get("/api/memory/{character_id}/context", response_model=MemoryContextResponse, tags=["memory"])
@@ -1418,6 +1521,220 @@ async def get_diary_entries(
         entries=[DiaryEntryResponse.model_validate(e) for e in entries],
         total=len(entries)
     )
+
+
+# =============================================================================
+# Memory CRUD Endpoints (Update/Delete by ID)
+# =============================================================================
+
+
+@app.put("/api/memory/{character_id}/facts/{fact_id}", response_model=UserFactResponse, tags=["memory"])
+async def update_user_fact(
+    character_id: UUID,
+    fact_id: UUID,
+    update: UserFactUpdate,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Update a specific user fact."""
+    from sqlalchemy import and_
+    stmt = select(UserFact).where(
+        and_(
+            UserFact.id == fact_id,
+            UserFact.user_id == user_id,
+            UserFact.character_id == character_id,
+        )
+    )
+    result = await session.execute(stmt)
+    fact = result.scalar_one_or_none()
+    
+    if not fact:
+        raise HTTPException(status_code=404, detail="Fact not found")
+    
+    # Update only provided fields
+    if update.category is not None:
+        fact.category = update.category
+    if update.key is not None:
+        fact.key = update.key
+    if update.value is not None:
+        fact.value = update.value
+    if update.confidence is not None:
+        fact.confidence = update.confidence
+    
+    fact.updated_at = datetime.utcnow()
+    await session.commit()
+    await session.refresh(fact)
+    
+    return UserFactResponse.model_validate(fact)
+
+
+@app.delete("/api/memory/{character_id}/facts/{fact_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["memory"])
+async def delete_user_fact_by_id(
+    character_id: UUID,
+    fact_id: UUID,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Delete a specific fact by ID."""
+    from sqlalchemy import delete as sql_delete, and_
+    stmt = sql_delete(UserFact).where(
+        and_(
+            UserFact.id == fact_id,
+            UserFact.user_id == user_id,
+            UserFact.character_id == character_id,
+        )
+    )
+    result = await session.execute(stmt)
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Fact not found")
+    await session.commit()
+
+
+@app.put("/api/memory/{character_id}/memories/{memory_id}", response_model=MemoryResponse, tags=["memory"])
+async def update_memory(
+    character_id: UUID,
+    memory_id: UUID,
+    update: MemoryUpdate,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Update a specific memory."""
+    from sqlalchemy import and_
+    stmt = select(Memory).where(
+        and_(
+            Memory.id == memory_id,
+            Memory.user_id == user_id,
+            Memory.character_id == character_id,
+        )
+    )
+    result = await session.execute(stmt)
+    memory = result.scalar_one_or_none()
+    
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    
+    # Update only provided fields
+    if update.content is not None:
+        memory.content = update.content
+    if update.summary is not None:
+        memory.summary = update.summary
+    if update.emotional_tone is not None:
+        memory.emotional_tone = update.emotional_tone
+    if update.importance is not None:
+        memory.importance = update.importance
+    
+    memory.updated_at = datetime.utcnow()
+    await session.commit()
+    await session.refresh(memory)
+    
+    return MemoryResponse.model_validate(memory)
+
+
+@app.put("/api/memory/{character_id}/relationship", response_model=RelationshipResponse, tags=["memory"])
+async def update_relationship(
+    character_id: UUID,
+    update: RelationshipUpdate,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Update relationship status with a character."""
+    from sqlalchemy import and_
+    stmt = select(Relationship).where(
+        and_(
+            Relationship.user_id == user_id,
+            Relationship.character_id == character_id,
+        )
+    )
+    result = await session.execute(stmt)
+    relationship = result.scalar_one_or_none()
+    
+    if not relationship:
+        raise HTTPException(status_code=404, detail="Relationship not found")
+    
+    # Update only provided fields
+    if update.stage is not None:
+        valid_stages = ["stranger", "acquaintance", "friend", "close_friend", "confidant", "soulmate"]
+        if update.stage not in valid_stages:
+            raise HTTPException(status_code=400, detail=f"Invalid stage. Must be one of: {valid_stages}")
+        relationship.stage = update.stage
+    if update.trust_level is not None:
+        relationship.trust_level = update.trust_level
+    
+    relationship.updated_at = datetime.utcnow()
+    await session.commit()
+    await session.refresh(relationship)
+    
+    return RelationshipResponse.model_validate(relationship)
+
+
+@app.delete("/api/memory/{character_id}/relationship/inside-jokes/{joke_index}", status_code=status.HTTP_204_NO_CONTENT, tags=["memory"])
+async def delete_inside_joke(
+    character_id: UUID,
+    joke_index: int,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Delete a specific inside joke by index."""
+    from sqlalchemy import and_
+    stmt = select(Relationship).where(
+        and_(
+            Relationship.user_id == user_id,
+            Relationship.character_id == character_id,
+        )
+    )
+    result = await session.execute(stmt)
+    relationship = result.scalar_one_or_none()
+    
+    if not relationship:
+        raise HTTPException(status_code=404, detail="Relationship not found")
+    
+    inside_jokes = relationship.inside_jokes or []
+    if isinstance(inside_jokes, str):
+        import json
+        inside_jokes = json.loads(inside_jokes) if inside_jokes else []
+    
+    if joke_index < 0 or joke_index >= len(inside_jokes):
+        raise HTTPException(status_code=404, detail="Inside joke not found")
+    
+    inside_jokes.pop(joke_index)
+    relationship.inside_jokes = inside_jokes
+    relationship.updated_at = datetime.utcnow()
+    await session.commit()
+
+
+@app.delete("/api/memory/{character_id}/relationship/milestones/{milestone_index}", status_code=status.HTTP_204_NO_CONTENT, tags=["memory"])
+async def delete_milestone(
+    character_id: UUID,
+    milestone_index: int,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session_dep),
+):
+    """Delete a specific milestone by index."""
+    from sqlalchemy import and_
+    stmt = select(Relationship).where(
+        and_(
+            Relationship.user_id == user_id,
+            Relationship.character_id == character_id,
+        )
+    )
+    result = await session.execute(stmt)
+    relationship = result.scalar_one_or_none()
+    
+    if not relationship:
+        raise HTTPException(status_code=404, detail="Relationship not found")
+    
+    milestones = relationship.milestones or []
+    if isinstance(milestones, str):
+        import json
+        milestones = json.loads(milestones) if milestones else []
+    
+    if milestone_index < 0 or milestone_index >= len(milestones):
+        raise HTTPException(status_code=404, detail="Milestone not found")
+    
+    milestones.pop(milestone_index)
+    relationship.milestones = milestones
+    relationship.updated_at = datetime.utcnow()
+    await session.commit()
 
 
 # =============================================================================
@@ -1656,10 +1973,44 @@ async def _proxy_to_core(websocket: WebSocket, user_id: str):
             
             async def forward_to_client():
                 """Forward Core messages to client."""
+                last_user_msg = None
+                last_assistant_msg = None
+                current_chat_id = None
+                current_char_id = None
+
                 try:
                     async for message in core_ws:
                         data = json.loads(message)
-                        logger.info(f"Received from Core: type={data.get('type')}")
+                        msg_type = data.get('type')
+                        logger.info(f"Received from Core: type={msg_type}")
+
+                        # Track conversation for memory extraction
+                        if msg_type == 'user_transcription':
+                            last_user_msg = data.get('content')
+                            current_chat_id = data.get('chat_id')
+                            current_char_id = data.get('character_id')
+                        elif msg_type == 'text_complete':
+                            last_assistant_msg = data.get('content')
+                            # Trigger memory extraction when conversation turn completes
+                            if last_user_msg and last_assistant_msg and current_char_id:
+                                chat_id_uuid = UUID(current_chat_id) if current_chat_id else None
+                                char_id_uuid = UUID(current_char_id)
+                                # Fire-and-forget memory extraction task
+                                asyncio.create_task(
+                                    _extract_and_notify_memory(
+                                        websocket=websocket,
+                                        user_id=UUID(user_id),
+                                        character_id=char_id_uuid,
+                                        chat_id=chat_id_uuid,
+                                        user_message=last_user_msg,
+                                        assistant_response=last_assistant_msg,
+                                    )
+                                )
+                                # Reset for next turn
+                                last_user_msg = None
+                                last_assistant_msg = None
+
+                        # Forward message to client
                         await websocket.send_json(data)
                 except Exception as e:
                     logger.error(f"Forward to client error: {e}")
