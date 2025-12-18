@@ -159,13 +159,40 @@ class MemoryService:
             response = await self.llm_caller(prompt)
             logger.info(f"📥 LLM response received ({len(response)} chars): {response[:500]}...")
 
+            # Extract JSON from response (handle markdown code blocks)
+            json_text = response.strip()
+
+            # Try to extract JSON from markdown code blocks
+            if "```json" in json_text:
+                # Extract content between ```json and ```
+                start = json_text.find("```json") + 7
+                end = json_text.find("```", start)
+                if end > start:
+                    json_text = json_text[start:end].strip()
+            elif "```" in json_text:
+                # Extract content between ``` and ```
+                start = json_text.find("```") + 3
+                end = json_text.find("```", start)
+                if end > start:
+                    json_text = json_text[start:end].strip()
+
+            # If response starts with text before JSON, try to find the JSON object
+            if not json_text.startswith("{"):
+                # Look for first { and last }
+                start = json_text.find("{")
+                end = json_text.rfind("}")
+                if start >= 0 and end > start:
+                    json_text = json_text[start:end+1]
+
+            logger.debug(f"Extracted JSON text ({len(json_text)} chars): {json_text[:200]}")
+
             # Parse JSON response
             try:
-                extraction = json.loads(response)
+                extraction = json.loads(json_text)
                 logger.info(f"✅ Parsed extraction: {extraction}")
             except json.JSONDecodeError as e:
                 logger.error(f"❌ Failed to parse extraction response as JSON: {e}")
-                logger.error(f"Raw response was: {response[:500]}")
+                logger.error(f"Cleaned JSON was: {json_text[:500]}")
                 return result
 
             result["emotional_tone"] = extraction.get("emotional_tone", "neutral")
