@@ -2896,10 +2896,12 @@ class CognitiaApp {
             modal.classList.remove('show');
         });
 
+        // Store reference to app instance
+        const app = this;
         modal.querySelector('.confirm-delete-btn').addEventListener('click', async (e) => {
             const messageId = e.target.dataset.messageId;
             const deleteType = e.target.dataset.deleteType;
-            await this.executeMessageDelete(messageId, deleteType);
+            await app.executeMessageDelete(messageId, deleteType);
             modal.classList.remove('show');
         });
 
@@ -2924,7 +2926,9 @@ class CognitiaApp {
 
             if (result.success) {
                 // Reload messages
-                await this.loadChatMessages(this.currentChat.id);
+                const messagesData = await api.getChatMessages(this.currentChat.id);
+                this.messages = messagesData.messages || [];
+                this.renderMessages();
                 this.showToast(`Deleted ${result.deleted_count} message(s)`, 'success');
             }
         } catch (error) {
