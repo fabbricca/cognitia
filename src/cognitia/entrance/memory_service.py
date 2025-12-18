@@ -670,7 +670,8 @@ async def ollama_llm_caller(prompt: str) -> str:
     EXTRACTION_MODEL = os.getenv("MEMORY_EXTRACTION_MODEL", os.getenv("OLLAMA_MODEL", "llama3.2:3b"))
     
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            logger.debug(f"Calling Ollama at {OLLAMA_URL} with model {EXTRACTION_MODEL}")
             response = await client.post(
                 f"{OLLAMA_URL}/api/generate",
                 json={
@@ -683,11 +684,14 @@ async def ollama_llm_caller(prompt: str) -> str:
                     }
                 }
             )
+            logger.debug(f"Ollama response status: {response.status_code}")
             response.raise_for_status()
             data = response.json()
-            return data.get("response", "{}")
+            response_text = data.get("response", "{}")
+            logger.debug(f"Ollama returned {len(response_text)} chars")
+            return response_text
     except Exception as e:
-        logger.error(f"Ollama extraction call failed: {e}")
+        logger.error(f"Ollama extraction call failed: {e}", exc_info=True)
         return '{}'
 
 
