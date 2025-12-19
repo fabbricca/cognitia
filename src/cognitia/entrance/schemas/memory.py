@@ -122,6 +122,7 @@ class RelationshipResponse(BaseModel):
     character_id: UUID
     stage: str  # stranger, acquaintance, friend, close_friend, confidant, soulmate
     trust_level: int  # 0-100
+    sentiment_score: int  # -100 to +100
     total_conversations: int
     total_messages: int
     first_conversation: Optional[datetime]
@@ -158,6 +159,7 @@ class RelationshipUpdate(BaseModel):
     """Schema for updating relationship status."""
     stage: Optional[str] = Field(None, description="Relationship stage")
     trust_level: Optional[int] = Field(None, ge=0, le=100)
+    sentiment_score: Optional[int] = Field(None, ge=-100, le=100)
 
 
 class RelationshipListResponse(BaseModel):

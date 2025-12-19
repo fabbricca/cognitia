@@ -364,3 +364,108 @@ def run_async_task(coro):
     else:
         # Need to run in new loop
         return asyncio.run(coro)
+
+
+# ============================================================================
+# Relationship Decay Task
+# ============================================================================
+
+@celery_app.task(base=AsyncTask)
+async def decay_inactive_relationships() -> dict:
+    """
+    Apply trust decay to relationships inactive for 7+ days.
+
+    Runs daily to simulate natural relationship drift when
+    users don't interact with characters regularly.
+
+    Decay formula:
+    - No decay for first 7 days of inactivity
+    - After 7 days: -1 trust per day
+    - After 30 days: -2 trust per day
+    - Sentiment decays toward 0 (neutral) at 20% rate
+
+    Returns:
+        Dict with counts of relationships decayed
+    """
+    try:
+        logger.info("Starting relationship decay task")
+
+        async with async_session_maker() as session:
+            from datetime import datetime, timedelta
+            from sqlalchemy import select
+            from .database import Relationship
+            from .memory_service import get_stage_for_trust
+
+            now = datetime.utcnow()
+            seven_days_ago = now - timedelta(days=7)
+
+            # Get all relationships inactive for 7+ days
+            stmt = select(Relationship).where(
+                Relationship.last_conversation < seven_days_ago
+            )
+            result = await session.execute(stmt)
+            inactive_relationships = result.scalars().all()
+
+            decay_count = 0
+            for rel in inactive_relationships:
+                if not rel.last_conversation:
+                    continue
+
+                days_inactive = (now - rel.last_conversation).days
+
+                # Skip if less than 7 days
+                if days_inactive < 7:
+                    continue
+
+                # Calculate trust decay
+                if days_inactive >= 30:
+                    trust_decay = 2  # -2 per day after 30 days
+                else:
+                    trust_decay = 1  # -1 per day after 7 days
+
+                # Apply decay (but don't go below 0)
+                old_trust = rel.trust_level
+                rel.trust_level = max(0, rel.trust_level - trust_decay)
+
+                # Sentiment decays toward neutral (0)
+                old_sentiment = rel.sentiment_score
+                if rel.sentiment_score > 0:
+                    # Positive sentiment decays toward 0
+                    sentiment_decay = max(1, int(rel.sentiment_score * 0.2))
+                    rel.sentiment_score = max(0, rel.sentiment_score - sentiment_decay)
+                elif rel.sentiment_score < 0:
+                    # Negative sentiment also decays toward 0
+                    sentiment_recovery = max(1, int(abs(rel.sentiment_score) * 0.2))
+                    rel.sentiment_score = min(0, rel.sentiment_score + sentiment_recovery)
+
+                # Update stage if trust changed enough
+                new_stage = get_stage_for_trust(rel.trust_level)
+                if new_stage != rel.stage:
+                    logger.info(
+                        f"Relationship {rel.id} decayed from {rel.stage} to {new_stage} "
+                        f"after {days_inactive} days inactive"
+                    )
+                    rel.stage = new_stage
+
+                rel.updated_at = now
+                decay_count += 1
+
+                logger.debug(
+                    f"Decayed relationship {rel.id}: "
+                    f"trust {old_trust} -> {rel.trust_level}, "
+                    f"sentiment {old_sentiment} -> {rel.sentiment_score} "
+                    f"({days_inactive} days inactive)"
+                )
+
+            await session.commit()
+
+        logger.info(f"Relationship decay complete: {decay_count} relationships decayed")
+
+        return {
+            "relationships_decayed": decay_count,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+    except Exception as exc:
+        logger.error(f"Error in relationship decay task: {exc}")
+        raise

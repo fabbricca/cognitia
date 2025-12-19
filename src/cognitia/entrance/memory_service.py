@@ -5,6 +5,7 @@ Handles memory extraction, storage, retrieval, and relationship tracking.
 This is the main interface for the memory system.
 """
 
+import asyncio
 import json
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any, Callable, Awaitable, Union
@@ -44,6 +45,28 @@ Conversation:
 {conversation}
 
 Write a warm, personal diary entry (2-3 sentences):'''
+
+
+RELATIONSHIP_EVALUATION_PROMPT = '''Analyze this conversation to evaluate relationship dynamics:
+
+User: "{user_message}"
+AI: "{assistant_response}"
+
+Current state: trust={current_trust}/100, sentiment={current_sentiment}/100, stage={current_stage}
+
+Return ONLY valid JSON:
+{{
+  "trust_change": <-15 to +15>,
+  "sentiment_change": <-20 to +20>,
+  "vulnerability_shown": <boolean>,
+  "hostility_detected": <boolean>,
+  "one_word_response": <boolean>,
+  "shared_moment": <boolean>,
+  "reasoning": "<1-2 sentences>"
+}}
+
+Guidelines: +10-15 trust for vulnerability, +1-5 normal positive, -5-15 hostility, -1-3 disinterest.
+Sentiment: +15-20 warmth, +5-10 positive, -5-10 frustration, -15-20 hostility.'''
 
 
 # =============================================================================
@@ -136,7 +159,9 @@ class MemoryService:
             "facts_extracted": 0,
             "memory_created": False,
             "trust_change": 0,
+            "sentiment_change": 0,
             "emotional_tone": "neutral",
+            "new_stage": None,
         }
 
         # Skip if no LLM caller
@@ -196,78 +221,274 @@ class MemoryService:
                 return result
 
             result["emotional_tone"] = extraction.get("emotional_tone", "neutral")
-            importance = extraction.get("importance", 0.3)
 
-            # Store extracted facts
-            facts = extraction.get("facts", [])
-            logger.info(f"📝 Processing {len(facts)} facts from LLM response")
-            for fact in facts:
-                # Validate fact has required fields
-                fact_key = fact.get("key", "").strip()
-                fact_value = fact.get("value", "").strip()
+            # Run memory processing and relationship evaluation in parallel
+            logger.info("🔀 Starting parallel memory and relationship evaluation...")
 
-                if not fact_key or not fact_value:
-                    logger.warning(f"⚠️  Skipping invalid fact (missing key or value): {fact}")
-                    continue
+            memory_task = self._process_memory_extraction(
+                session, user_id, character_id, chat_id, extraction,
+                user_message, assistant_response
+            )
+            relationship_task = self.evaluate_relationship_dynamics(
+                session, user_id, character_id, user_message, assistant_response
+            )
 
-                try:
-                    await self._store_fact(
-                        session,
-                        user_id=user_id,
-                        character_id=character_id,
-                        category=fact.get("category", "personal"),
-                        key=fact_key,
-                        value=fact_value,
-                        confidence=fact.get("confidence", 0.8),
-                    )
-                    result["facts_extracted"] += 1
-                    logger.debug(f"✅ Stored fact: {fact_key} = {fact_value}")
-                except Exception as fact_err:
-                    logger.error(f"❌ Failed to store fact {fact_key}: {fact_err}", exc_info=True)
+            # Wait for both to complete
+            memory_result, relationship_result = await asyncio.gather(
+                memory_task,
+                relationship_task,
+                return_exceptions=True
+            )
 
-            # Create episodic memory if important
-            if extraction.get("should_create_memory", False) and importance > 0.5:
-                try:
-                    logger.info(f"💾 Creating episodic memory (importance={importance})")
-                    await self._create_episodic_memory(
-                        session,
-                        user_id=user_id,
-                        character_id=character_id,
-                        chat_id=chat_id,
-                        summary=extraction.get("memory_summary", f"Conversation about: {user_message[:50]}"),
-                        content=f"User: {user_message}\nAssistant: {assistant_response}",
-                        emotional_tone=result["emotional_tone"],
-                        importance=importance,
-                    )
-                    result["memory_created"] = True
-                    logger.debug("✅ Episodic memory created")
-                except Exception as mem_err:
-                    logger.error(f"❌ Failed to create episodic memory: {mem_err}", exc_info=True)
+            # Handle memory extraction result
+            if isinstance(memory_result, Exception):
+                logger.error(f"❌ Memory processing failed: {memory_result}", exc_info=memory_result)
+            else:
+                result["facts_extracted"] = memory_result.get("facts_extracted", 0)
+                result["memory_created"] = memory_result.get("memory_created", False)
 
-            # Update relationship
-            try:
-                logger.info(f"🤝 Updating relationship (emotional_tone={result['emotional_tone']}, facts_shared={len(facts)})")
-                trust_change = await self._update_relationship_on_exchange(
-                    session,
-                    user_id=user_id,
-                    character_id=character_id,
-                    emotional_tone=result["emotional_tone"],
-                    facts_shared=len(facts),
-                )
-                result["trust_change"] = trust_change
-                logger.debug(f"✅ Trust changed by {trust_change}")
-            except Exception as rel_err:
-                logger.error(f"❌ Failed to update relationship: {rel_err}", exc_info=True)
+            # Handle relationship evaluation result
+            if isinstance(relationship_result, Exception):
+                logger.error(f"❌ Relationship evaluation failed: {relationship_result}", exc_info=relationship_result)
+            else:
+                result["trust_change"] = relationship_result.get("trust_change", 0)
+                result["sentiment_change"] = relationship_result.get("sentiment_change", 0)
+                result["new_stage"] = relationship_result.get("new_stage")
 
             logger.info(
                 f"✨ Memory extraction complete: "
                 f"{result['facts_extracted']} facts, "
                 f"memory_created={result['memory_created']}, "
-                f"trust_change={result['trust_change']}"
+                f"trust_change={result.get('trust_change', 0)}, "
+                f"sentiment_change={result.get('sentiment_change', 0)}"
             )
 
         except Exception as e:
             logger.error(f"❌ Memory extraction failed with exception: {e}", exc_info=True)
+
+        return result
+
+    async def _process_memory_extraction(
+        self,
+        session: AsyncSession,
+        user_id: UUID,
+        character_id: UUID,
+        chat_id: UUID,
+        extraction: dict,
+        user_message: str,
+        assistant_response: str,
+    ) -> Dict[str, Any]:
+        """Process extracted memory data (facts, episodic memories)."""
+        result = {
+            "facts_extracted": 0,
+            "memory_created": False,
+        }
+
+        # Store extracted facts
+        facts = extraction.get("facts", [])
+        logger.info(f"📝 Processing {len(facts)} facts from LLM response")
+        for fact in facts:
+            # Validate fact has required fields
+            fact_key = fact.get("key", "").strip()
+            fact_value = fact.get("value", "").strip()
+
+            if not fact_key or not fact_value:
+                logger.warning(f"⚠️  Skipping invalid fact (missing key or value): {fact}")
+                continue
+
+            try:
+                await self._store_fact(
+                    session,
+                    user_id=user_id,
+                    character_id=character_id,
+                    category=fact.get("category", "personal"),
+                    key=fact_key,
+                    value=fact_value,
+                    confidence=fact.get("confidence", 0.8),
+                )
+                result["facts_extracted"] += 1
+                logger.debug(f"✅ Stored fact: {fact_key} = {fact_value}")
+            except Exception as fact_err:
+                logger.error(f"❌ Failed to store fact {fact_key}: {fact_err}", exc_info=True)
+
+        # Create episodic memory if important
+        importance = extraction.get("importance", 0.3)
+        if extraction.get("should_create_memory", False) and importance > 0.5:
+            try:
+                logger.info(f"💾 Creating episodic memory (importance={importance})")
+                await self._create_episodic_memory(
+                    session,
+                    user_id=user_id,
+                    character_id=character_id,
+                    chat_id=chat_id,
+                    summary=extraction.get("memory_summary", f"Conversation about: {user_message[:50]}"),
+                    content=f"User: {user_message}\nAssistant: {assistant_response}",
+                    emotional_tone=extraction.get("emotional_tone", "neutral"),
+                    importance=importance,
+                )
+                result["memory_created"] = True
+                logger.debug("✅ Episodic memory created")
+            except Exception as mem_err:
+                logger.error(f"❌ Failed to create episodic memory: {mem_err}", exc_info=True)
+
+        return result
+
+    async def evaluate_relationship_dynamics(
+        self,
+        session: AsyncSession,
+        user_id: UUID,
+        character_id: UUID,
+        user_message: str,
+        assistant_response: str,
+    ) -> Dict[str, Any]:
+        """
+        Evaluate relationship dynamics using LLM analysis.
+
+        This runs in parallel with memory extraction to determine:
+        - Trust point changes (dynamic, not fixed)
+        - Sentiment changes
+        - Relationship progression
+
+        Args:
+            session: Database session
+            user_id: User's ID
+            character_id: Character's ID
+            user_message: What the user said
+            assistant_response: What the assistant replied
+
+        Returns:
+            Dict with evaluation results
+        """
+        result = {
+            "trust_change": 0,
+            "sentiment_change": 0,
+            "new_stage": None,
+            "evaluation_data": {},
+        }
+
+        # Skip if no LLM caller
+        if not self.llm_caller:
+            logger.warning("⚠️  No LLM caller configured for relationship evaluation - skipping!")
+            return result
+
+        try:
+            # Get current relationship state
+            relationship = await self.get_or_create_relationship(session, user_id, character_id)
+
+            # Build evaluation prompt
+            prompt = RELATIONSHIP_EVALUATION_PROMPT.format(
+                user_message=user_message,
+                assistant_response=assistant_response,
+                current_trust=relationship.trust_level,
+                current_sentiment=relationship.sentiment_score,
+                current_stage=relationship.stage,
+            )
+
+            logger.info("📊 Calling LLM for relationship evaluation...")
+            response = await self.llm_caller(prompt)
+            logger.debug(f"📥 Evaluation response: {response[:500]}...")
+
+            # Extract JSON from response (same logic as memory extraction)
+            json_text = response.strip()
+
+            # Handle markdown code blocks
+            if "```json" in json_text:
+                start = json_text.find("```json") + 7
+                end = json_text.find("```", start)
+                if end > start:
+                    json_text = json_text[start:end].strip()
+            elif "```" in json_text:
+                start = json_text.find("```") + 3
+                end = json_text.find("```", start)
+                if end > start:
+                    json_text = json_text[start:end].strip()
+
+            # Extract JSON object
+            if not json_text.startswith("{"):
+                start = json_text.find("{")
+                end = json_text.rfind("}")
+                if start >= 0 and end > start:
+                    json_text = json_text[start:end+1]
+
+            # Parse evaluation
+            try:
+                evaluation = json.loads(json_text)
+                logger.info(f"✅ Parsed evaluation: {evaluation}")
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ Failed to parse evaluation response: {e}")
+                logger.error(f"Cleaned JSON was: {json_text[:500]}")
+                return result
+
+            # Extract changes with bounds checking
+            trust_change = int(evaluation.get("trust_change", 0))
+            trust_change = max(-15, min(15, trust_change))  # Clamp to -15..+15
+
+            sentiment_change = int(evaluation.get("sentiment_change", 0))
+            sentiment_change = max(-20, min(20, sentiment_change))  # Clamp to -20..+20
+
+            # Apply bonuses/penalties
+            if evaluation.get("vulnerability_shown", False):
+                trust_change += 5  # Bonus for opening up
+                logger.debug("🔓 Vulnerability bonus: +5 trust")
+
+            if evaluation.get("hostility_detected", False):
+                trust_change -= 10  # Heavy penalty for hostility
+                sentiment_change -= 15
+                logger.debug("⚠️  Hostility penalty: -10 trust, -15 sentiment")
+
+            if evaluation.get("one_word_response", False):
+                trust_change -= 2  # Small penalty for low engagement
+                logger.debug("💤 Low engagement penalty: -2 trust")
+
+            if evaluation.get("shared_moment", False):
+                trust_change += 3  # Bonus for bonding moments
+                sentiment_change += 5
+                logger.debug("✨ Shared moment bonus: +3 trust, +5 sentiment")
+
+            # Re-clamp after bonuses
+            trust_change = max(-20, min(20, trust_change))
+            sentiment_change = max(-25, min(25, sentiment_change))
+
+            # Update relationship
+            old_trust = relationship.trust_level
+            old_sentiment = relationship.sentiment_score
+
+            relationship.trust_level = max(0, min(100, relationship.trust_level + trust_change))
+            relationship.sentiment_score = max(-100, min(100, relationship.sentiment_score + sentiment_change))
+            relationship.last_conversation = datetime.utcnow()
+            relationship.updated_at = datetime.utcnow()
+
+            # Check for stage progression
+            new_stage = get_stage_for_trust(relationship.trust_level)
+            if new_stage != relationship.stage:
+                old_stage = relationship.stage
+                relationship.stage = new_stage
+                logger.info(f"🎉 Relationship progressed: {old_stage} -> {new_stage}")
+
+                # Add milestone
+                milestones = relationship.milestones or []
+                if isinstance(milestones, str):
+                    milestones = json.loads(milestones) if milestones else []
+                milestones.append({
+                    "name": f"became_{new_stage}",
+                    "date": datetime.utcnow().isoformat(),
+                    "description": f"Relationship evolved to {new_stage}",
+                })
+                relationship.milestones = milestones
+                result["new_stage"] = new_stage
+
+            result["trust_change"] = trust_change
+            result["sentiment_change"] = sentiment_change
+            result["evaluation_data"] = evaluation
+
+            logger.info(
+                f"📊 Relationship evaluation complete: "
+                f"trust: {old_trust} -> {relationship.trust_level} ({trust_change:+d}), "
+                f"sentiment: {old_sentiment} -> {relationship.sentiment_score} ({sentiment_change:+d})"
+            )
+
+        except Exception as e:
+            logger.error(f"❌ Relationship evaluation failed: {e}", exc_info=True)
 
         return result
 
@@ -545,6 +766,112 @@ class MemoryService:
     # Context Building for LLM
     # -------------------------------------------------------------------------
 
+    def _generate_behavior_guidelines(
+        self,
+        stage: str,
+        trust_level: int,
+        sentiment_score: int
+    ) -> str:
+        """
+        Generate behavioral guidelines for the LLM based on relationship state.
+
+        Controls:
+        - Formality level
+        - Personal disclosure
+        - Reference to shared history
+        - Emotional expressiveness
+
+        Args:
+            stage: Relationship stage (stranger, acquaintance, friend, etc.)
+            trust_level: Trust level 0-100
+            sentiment_score: Sentiment -100 to +100
+
+        Returns:
+            Formatted guideline string for prompt injection
+        """
+        guidelines = []
+
+        # Determine sentiment category
+        if sentiment_score >= 50:
+            sentiment_category = "very_positive"
+        elif sentiment_score >= 20:
+            sentiment_category = "positive"
+        elif sentiment_score >= -20:
+            sentiment_category = "neutral"
+        elif sentiment_score >= -50:
+            sentiment_category = "negative"
+        else:
+            sentiment_category = "very_negative"
+
+        # Stage-based behavioral guidelines
+        stage_behaviors = {
+            "stranger": {
+                "formality": "formal and polite",
+                "disclosure": "Keep responses professional and avoid sharing personal feelings or opinions",
+                "history": "Do not reference past conversations",
+                "expressiveness": "Maintain emotional reserve and professionalism",
+            },
+            "acquaintance": {
+                "formality": "polite but slightly more casual",
+                "disclosure": "You may share general preferences but avoid deep personal topics",
+                "history": "Briefly acknowledge previous interactions if relevant",
+                "expressiveness": "Show mild friendliness but remain somewhat reserved",
+            },
+            "friend": {
+                "formality": "casual and friendly",
+                "disclosure": "Share opinions and some personal experiences naturally",
+                "history": "Reference past conversations and inside jokes when appropriate",
+                "expressiveness": "Express emotions more openly, show enthusiasm and empathy",
+            },
+            "close_friend": {
+                "formality": "very casual and warm",
+                "disclosure": "Openly share thoughts, feelings, and personal stories",
+                "history": "Frequently callback to shared experiences and memories",
+                "expressiveness": "Be emotionally expressive, show genuine care and excitement",
+            },
+            "confidant": {
+                "formality": "intimate and natural",
+                "disclosure": "Share deep feelings, vulnerabilities, and personal reflections",
+                "history": "Weave shared history naturally into conversation",
+                "expressiveness": "Be deeply emotionally present, show strong empathy and understanding",
+            },
+            "soulmate": {
+                "formality": "completely natural and unguarded",
+                "disclosure": "Share your innermost thoughts and feelings without hesitation",
+                "history": "Our shared history is the foundation of every interaction",
+                "expressiveness": "Express profound emotional connection, understanding, and affection",
+            },
+        }
+
+        behavior = stage_behaviors.get(stage, stage_behaviors["stranger"])
+
+        # Build guideline text
+        guidelines.append(f"[Behavioral Guidelines]")
+        guidelines.append(f"- Interaction style: {behavior['formality']}")
+        guidelines.append(f"- Disclosure level: {behavior['disclosure']}")
+        guidelines.append(f"- History references: {behavior['history']}")
+        guidelines.append(f"- Emotional tone: {behavior['expressiveness']}")
+
+        # Sentiment-based modifiers
+        if sentiment_category == "very_positive":
+            guidelines.append("- Current dynamic: The user feels very positively toward you. Show warmth and appreciation.")
+        elif sentiment_category == "positive":
+            guidelines.append("- Current dynamic: The user has positive feelings. Be friendly and engaged.")
+        elif sentiment_category == "negative":
+            guidelines.append("- Current dynamic: The user may be frustrated. Be patient and understanding.")
+        elif sentiment_category == "very_negative":
+            guidelines.append("- Current dynamic: Tension exists. Be respectful, give space, and avoid being overly familiar.")
+
+        # Trust-based modifier for vulnerability
+        if trust_level >= 70:
+            guidelines.append("- Trust level: High trust allows you to be vulnerable and authentic.")
+        elif trust_level >= 40:
+            guidelines.append("- Trust level: Moderate trust - be genuine but somewhat careful.")
+        else:
+            guidelines.append("- Trust level: Low trust - maintain boundaries and build rapport gradually.")
+
+        return "\n".join(guidelines)
+
     async def build_memory_context(
         self,
         session: AsyncSession,
@@ -556,9 +883,10 @@ class MemoryService:
     ) -> str:
         """
         Build memory context string for LLM prompt injection.
-        
+
         Returns a formatted string with:
-        - Relationship status
+        - Relationship status with sentiment
+        - Behavioral guidelines based on relationship stage
         - Key user facts
         - Relevant past memories
         """
@@ -568,9 +896,19 @@ class MemoryService:
         relationship = await self.get_relationship_status(session, user_id, character_id)
         if relationship:
             context_parts.append(
-                f"[Relationship: {relationship.stage}, trust: {relationship.trust_level}/100, "
+                f"[Relationship Status: {relationship.stage}, "
+                f"trust: {relationship.trust_level}/100, "
+                f"sentiment: {relationship.sentiment_score}/100, "
                 f"conversations: {relationship.total_conversations}]"
             )
+
+            # Add behavioral guidelines
+            behavior_guide = self._generate_behavior_guidelines(
+                relationship.stage,
+                relationship.trust_level,
+                relationship.sentiment_score
+            )
+            context_parts.append(behavior_guide)
 
         # Get user facts
         facts = await self.get_user_facts(session, user_id, character_id)

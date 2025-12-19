@@ -47,6 +47,11 @@ celery_app.conf.beat_schedule = {
         "task": "cognitia.entrance.tasks.check_expiring_subscriptions",
         "schedule": crontab(hour=9, minute=0),  # Daily at 09:00 UTC
     },
+    # Decay inactive relationships daily
+    "decay-inactive-relationships": {
+        "task": "cognitia.entrance.tasks.decay_inactive_relationships",
+        "schedule": crontab(hour=3, minute=0),  # Daily at 03:00 UTC
+    },
 }
 
 if __name__ == "__main__":

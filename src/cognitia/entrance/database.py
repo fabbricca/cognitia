@@ -674,6 +674,7 @@ class Relationship(Base):
     
     # Metrics
     trust_level: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
+    sentiment_score: Mapped[int] = mapped_column(Integer, default=0)  # -100 to +100
     total_conversations: Mapped[int] = mapped_column(Integer, default=0)
     total_messages: Mapped[int] = mapped_column(Integer, default=0)
     

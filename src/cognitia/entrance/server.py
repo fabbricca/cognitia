@@ -1419,12 +1419,17 @@ async def _extract_and_notify_memory(
 
             await session.commit()
 
-            # Notify client if anything was extracted
-            if result.get("facts_extracted", 0) > 0 or result.get("memory_created"):
+            # Notify client if anything significant happened
+            if (result.get("facts_extracted", 0) > 0
+                or result.get("memory_created")
+                or result.get("trust_change", 0) != 0
+                or result.get("sentiment_change", 0) != 0):
+
                 logger.info(
                     f"WebSocket memory extraction: {result['facts_extracted']} facts, "
                     f"memory_created={result['memory_created']}, "
-                    f"trust_change={result['trust_change']}"
+                    f"trust_change={result.get('trust_change', 0)}, "
+                    f"sentiment_change={result.get('sentiment_change', 0)}"
                 )
 
                 # Send memory_update message to client
@@ -1434,10 +1439,35 @@ async def _extract_and_notify_memory(
                         "facts_extracted": result.get("facts_extracted", 0),
                         "memory_created": result.get("memory_created", False),
                         "trust_change": result.get("trust_change", 0),
+                        "sentiment_change": result.get("sentiment_change", 0),
                         "emotional_tone": result.get("emotional_tone", "neutral"),
                     })
                 except Exception as send_err:
                     logger.warning(f"Could not send memory_update to client: {send_err}")
+
+            # Send separate notification for stage progression
+            if result.get("new_stage"):
+                try:
+                    await websocket.send_json({
+                        "type": "relationship_milestone",
+                        "new_stage": result["new_stage"],
+                        "message": f"Your relationship has evolved to: {result['new_stage']}!",
+                    })
+                except Exception as send_err:
+                    logger.warning(f"Could not send relationship_milestone to client: {send_err}")
+
+            # Send alert for significant sentiment changes
+            sentiment_change = result.get("sentiment_change", 0)
+            if abs(sentiment_change) >= 15:
+                try:
+                    sentiment_direction = "improved significantly" if sentiment_change > 0 else "declined noticeably"
+                    await websocket.send_json({
+                        "type": "sentiment_alert",
+                        "sentiment_change": sentiment_change,
+                        "message": f"The emotional dynamic has {sentiment_direction}.",
+                    })
+                except Exception as send_err:
+                    logger.warning(f"Could not send sentiment_alert to client: {send_err}")
 
     except Exception as e:
         logger.error(f"WebSocket memory extraction failed: {e}", exc_info=True)
