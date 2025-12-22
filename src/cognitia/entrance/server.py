@@ -93,6 +93,7 @@ from .usage_tracker import usage_tracker
 from . import subscription as subscription_module
 from .api.v2 import auth_router, users_router, characters_router, chats_router
 from .memory_service import MemoryService, memory_service
+from .memory_client import MemoryClient, memory_client
 from .schemas.memory import (
     UserFactCreate,
     UserFactUpdate,
@@ -1367,24 +1368,20 @@ async def _extract_memories_for_exchange(
             if not user_msg or not assistant_msg:
                 return
 
-            # Extract memories
-            result = await memory_service.extract_and_store_memories(
-                session=session,
+            # Ingest conversation into Memory Add-on Service
+            result = await memory_client.ingest_conversation(
                 user_id=user_id,
                 character_id=character_id,
-                chat_id=chat_id,
                 user_message=user_msg,
                 assistant_response=assistant_msg,
             )
 
-            await session.commit()
-
-            if result.get("facts_extracted", 0) > 0 or result.get("memory_created"):
+            if result:
                 logger.info(
-                    f"Memory extraction: {result['facts_extracted']} facts, "
-                    f"memory_created={result['memory_created']}, "
-                    f"trust_change={result['trust_change']}"
+                    f"Memory ingestion successful for user={user_id}, character={character_id}: {result.get('status')}"
                 )
+            else:
+                logger.debug(f"Memory ingestion returned no result (non-critical)")
 
     except Exception as e:
         logger.error(f"Memory extraction failed: {e}")
@@ -1406,68 +1403,28 @@ async def _extract_and_notify_memory(
     from .database import get_session
 
     try:
-        async with get_session() as session:
-            # Extract memories
-            result = await memory_service.extract_and_store_memories(
-                session=session,
-                user_id=user_id,
-                character_id=character_id,
-                chat_id=chat_id,
-                user_message=user_message,
-                assistant_response=assistant_response,
+        # Ingest conversation into Memory Add-on Service
+        result = await memory_client.ingest_conversation(
+            user_id=user_id,
+            character_id=character_id,
+            user_message=user_message,
+            assistant_response=assistant_response,
+        )
+
+        # Notify client of successful memory ingestion
+        if result:
+            logger.info(
+                f"WebSocket memory ingestion successful for user={user_id}, character={character_id}: {result.get('status')}"
             )
 
-            await session.commit()
-
-            # Notify client if anything significant happened
-            if (result.get("facts_extracted", 0) > 0
-                or result.get("memory_created")
-                or result.get("trust_change", 0) != 0
-                or result.get("sentiment_change", 0) != 0):
-
-                logger.info(
-                    f"WebSocket memory extraction: {result['facts_extracted']} facts, "
-                    f"memory_created={result['memory_created']}, "
-                    f"trust_change={result.get('trust_change', 0)}, "
-                    f"sentiment_change={result.get('sentiment_change', 0)}"
-                )
-
-                # Send memory_update message to client
-                try:
-                    await websocket.send_json({
-                        "type": "memory_update",
-                        "facts_extracted": result.get("facts_extracted", 0),
-                        "memory_created": result.get("memory_created", False),
-                        "trust_change": result.get("trust_change", 0),
-                        "sentiment_change": result.get("sentiment_change", 0),
-                        "emotional_tone": result.get("emotional_tone", "neutral"),
-                    })
-                except Exception as send_err:
-                    logger.warning(f"Could not send memory_update to client: {send_err}")
-
-            # Send separate notification for stage progression
-            if result.get("new_stage"):
-                try:
-                    await websocket.send_json({
-                        "type": "relationship_milestone",
-                        "new_stage": result["new_stage"],
-                        "message": f"Your relationship has evolved to: {result['new_stage']}!",
-                    })
-                except Exception as send_err:
-                    logger.warning(f"Could not send relationship_milestone to client: {send_err}")
-
-            # Send alert for significant sentiment changes
-            sentiment_change = result.get("sentiment_change", 0)
-            if abs(sentiment_change) >= 15:
-                try:
-                    sentiment_direction = "improved significantly" if sentiment_change > 0 else "declined noticeably"
-                    await websocket.send_json({
-                        "type": "sentiment_alert",
-                        "sentiment_change": sentiment_change,
-                        "message": f"The emotional dynamic has {sentiment_direction}.",
-                    })
-                except Exception as send_err:
-                    logger.warning(f"Could not send sentiment_alert to client: {send_err}")
+            try:
+                await websocket.send_json({
+                    "type": "memory_update",
+                    "status": result.get("status", "success"),
+                    "message": "Conversation added to memory"
+                })
+            except Exception as send_err:
+                logger.warning(f"Could not send memory_update to client: {send_err}")
 
     except Exception as e:
         logger.error(f"WebSocket memory extraction failed: {e}", exc_info=True)
