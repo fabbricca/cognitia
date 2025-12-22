@@ -163,3 +163,4 @@ class HealthResponse(BaseModel):
     """Schema for health check response."""
     status: str = "ok"
     version: str = "3.0.0"
+    memory_service: Optional[str] = None  # Status of memory service: "healthy", "degraded", "unavailable"

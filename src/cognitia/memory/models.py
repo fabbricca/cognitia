@@ -1,175 +1,133 @@
-"""
-Memory system data models for Cognitia.
-
-This module defines the data structures used for storing and retrieving
-memories, tasks, and knowledge in the Cognitia memory system.
-"""
+"""Pydantic models for Memory Add-on API."""
 
 from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, List, Optional
-from uuid import uuid4
-
 from pydantic import BaseModel, Field
 
 
-class MemoryType(str, Enum):
-    """Types of memory storage."""
-    EPISODIC = "episodic"  # Personal experiences and conversations
-    SEMANTIC = "semantic"  # General knowledge and facts
-    PROCEDURAL = "procedural"  # How to perform tasks
+class IngestRequest(BaseModel):
+    """Request model for ingesting conversation."""
+
+    user_id: str = Field(..., description="User ID")
+    character_id: str = Field(..., description="Character ID")
+    user_message: str = Field(..., description="User's message")
+    assistant_response: str = Field(..., description="Assistant's response")
+    extracted_facts: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Facts extracted from conversation"
+    )
+    timestamp: datetime = Field(..., description="Conversation timestamp")
 
 
-class TaskType(str, Enum):
-    """Types of tasks."""
-    CALENDAR_EVENT = "calendar_event"
-    REMINDER = "reminder"
-    TODO = "todo"
-    HABIT = "habit"
+class IngestResponse(BaseModel):
+    """Response model for ingestion."""
+
+    success: bool = Field(..., description="Whether ingestion succeeded")
+    entities_created: int = Field(0, description="Number of entities created")
+    relationships_created: int = Field(0, description="Number of relationships created")
+    episode_id: Optional[str] = Field(None, description="ID of stored episode")
+    salience_score: float = Field(0.0, description="Calculated salience score")
 
 
-class TaskStatus(str, Enum):
-    """Task completion status."""
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
+class RetrieveRequest(BaseModel):
+    """Request model for retrieving memory context."""
+
+    user_id: str = Field(..., description="User ID")
+    character_id: str = Field(..., description="Character ID")
+    query: Optional[str] = Field(None, description="Optional query for semantic search")
+    limit: int = Field(10, description="Maximum number of memories to retrieve", ge=1, le=50)
 
 
 class MemoryItem(BaseModel):
-    """Represents a single memory item in the system."""
+    """Individual memory item."""
 
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    type: MemoryType
-    content: str
-    embedding: Optional[List[float]] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    timestamp: datetime = Field(default_factory=datetime.now)
-    importance: float = Field(default=0.5, ge=0.0, le=1.0)
-    tags: List[str] = Field(default_factory=list)
-    related_memories: List[str] = Field(default_factory=list)  # IDs of related memories
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    type: str = Field(..., description="Type: 'fact', 'episode', or 'persona'")
+    content: str = Field(..., description="Memory content")
+    score: float = Field(..., description="Relevance/importance score")
+    timestamp: Optional[datetime] = Field(None, description="When this memory was created")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
-class ConversationMemory(MemoryItem):
-    """Specialized memory for conversation history."""
+class RetrieveResponse(BaseModel):
+    """Response model for memory retrieval."""
 
-    type: MemoryType = MemoryType.EPISODIC
-    user_message: str
-    assistant_response: str
-    conversation_id: str
-    sentiment: Optional[float] = None  # -1 to 1 scale
-
-    def __init__(self, **data):
-        super().__init__(**data)
-        self.content = f"User: {self.user_message}\nAssistant: {self.assistant_response}"
+    context: str = Field(..., description="Formatted context block for LLM")
+    memories: List[MemoryItem] = Field(default_factory=list, description="Individual memory items")
+    persona_summary: Optional[str] = Field(None, description="Distilled persona summary")
+    total_tokens: int = Field(0, description="Estimated token count of context")
 
 
-class TaskItem(BaseModel):
-    """Represents a task, reminder, or calendar event."""
+class PersonRequest(BaseModel):
+    """Request model for getting Person object."""
 
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    type: TaskType
-    title: str
-    description: Optional[str] = None
-    status: TaskStatus = TaskStatus.PENDING
-    priority: int = Field(default=3, ge=1, le=5)  # 1=lowest, 5=highest
-
-    # Time-based fields
-    due_date: Optional[datetime] = None
-    reminder_date: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-
-    # Recurrence
-    is_recurring: bool = False
-    recurrence_pattern: Optional[str] = None  # Cron-like pattern
-
-    # Location-based (for future location services)
-    location: Optional[str] = None
-    location_trigger: Optional[str] = None
-
-    # Calendar event specific
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    attendees: List[str] = Field(default_factory=list)
-
-    # Metadata
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-    tags: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    person_name: str = Field(..., description="Name of person to retrieve")
+    user_id: str = Field(..., description="User ID for scoping")
+    character_id: str = Field(..., description="Character ID for scoping")
 
 
-class KnowledgeItem(BaseModel):
-    """Represents a piece of general knowledge."""
+class PersonResponse(BaseModel):
+    """Response model for Person object."""
 
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    title: str
-    content: str
-    source: str  # e.g., "wikipedia", "user_defined", "web_scraped"
-    category: str
-    embedding: Optional[List[float]] = None
-    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    last_updated: datetime = Field(default_factory=datetime.now)
-    tags: List[str] = Field(default_factory=list)
-    related_concepts: List[str] = Field(default_factory=list)  # Links to other knowledge items
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    name: str = Field(..., description="Person's name")
+    entity_type: str = Field(..., description="Type: person, place, event")
+    properties: Dict[str, Any] = Field(default_factory=dict, description="Person properties")
+    relationships: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Relationships with other entities"
+    )
 
 
-class UserProfile(BaseModel):
-    """User profile and preferences."""
+class DistillRequest(BaseModel):
+    """Request model for persona distillation."""
 
-    user_id: str = "default_user"
-    name: Optional[str] = None
-    preferences: Dict[str, Any] = Field(default_factory=dict)
-    timezone: str = "UTC"
-    language: str = "en"
-    wake_words: List[str] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    user_id: str = Field(..., description="User ID")
+    character_id: str = Field(..., description="Character ID")
+    force: bool = Field(False, description="Force distillation even if recent")
 
 
-class MemoryQuery(BaseModel):
-    """Query parameters for memory retrieval."""
+class DistillResponse(BaseModel):
+    """Response model for persona distillation."""
 
-    query: str
-    memory_type: Optional[MemoryType] = None
-    tags: Optional[List[str]] = None
-    date_range: Optional[tuple[datetime, datetime]] = None
-    limit: int = 10
-    min_importance: float = 0.0
-    include_embedding: bool = False
+    success: bool = Field(..., description="Whether distillation succeeded")
+    persona: Dict[str, Any] = Field(default_factory=dict, description="Distilled persona profile")
+    facts_processed: int = Field(0, description="Number of facts used")
+    episodes_processed: int = Field(0, description="Number of episodes used")
+    token_count: int = Field(0, description="Token count of persona")
 
 
-class TaskQuery(BaseModel):
-    """Query parameters for task retrieval."""
+class PersonaGetResponse(BaseModel):
+    """Response model for getting persona."""
 
-    task_type: Optional[TaskType] = None
-    status: Optional[TaskStatus] = None
-    priority_min: Optional[int] = None
-    priority_max: Optional[int] = None
-    due_before: Optional[datetime] = None
-    due_after: Optional[datetime] = None
-    tags: Optional[List[str]] = None
-    limit: int = 50
+    exists: bool = Field(..., description="Whether persona exists")
+    persona: Optional[Dict[str, Any]] = Field(None, description="Persona profile if exists")
+    updated_at: Optional[str] = Field(None, description="When persona was last updated")
+    version: Optional[int] = Field(None, description="Persona version")
 
 
+class PersonaDeleteResponse(BaseModel):
+    """Response model for deleting persona."""
 
+    success: bool = Field(..., description="Whether deletion succeeded")
+    existed: bool = Field(..., description="Whether persona existed before deletion")
+
+
+class PruneRequest(BaseModel):
+    """Request model for pruning old memories."""
+
+    days: int = Field(180, description="Prune memories older than this", ge=1)
+    min_salience: float = Field(0.3, description="Only prune below this salience", ge=0.0, le=1.0)
+
+
+class PruneResponse(BaseModel):
+    """Response model for memory pruning."""
+
+    success: bool = Field(..., description="Whether pruning succeeded")
+    episodes_pruned: int = Field(0, description="Number of episodes removed")
+    entities_pruned: int = Field(0, description="Number of entities removed")
+
+
+class HealthResponse(BaseModel):
+    """Response model for health check."""
+
+    status: str = Field(..., description="Service status")
+    graphiti_connected: bool = Field(..., description="Neo4j/Graphiti connection status")
+    qdrant_connected: bool = Field(..., description="Qdrant connection status")
+    ollama_available: bool = Field(..., description="Ollama availability")

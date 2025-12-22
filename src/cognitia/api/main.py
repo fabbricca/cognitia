@@ -28,9 +28,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .auth import verify_token
 from .cache import cache, init_cache, close_cache
 from .database import init_db, get_session, Character, Chat, Message
+from .memory_client import memory_client
 from .routes_auth import router as auth_router
 from .routes_characters import router as characters_router
 from .routes_chats import router as chats_router
+from .routes_memory import router as memory_router
 from .schemas import HealthResponse
 
 # Orchestrator connection settings
@@ -71,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(characters_router, prefix="/api/characters", tags=["characters"])
     app.include_router(chats_router, prefix="/api/chats", tags=["chats"])
+    app.include_router(memory_router, prefix="/api/memory", tags=["memory"])
     
     # Favicon
     @app.get("/favicon.ico", include_in_schema=False)
@@ -82,7 +85,17 @@ def create_app() -> FastAPI:
     @app.get("/api/health", response_model=HealthResponse, tags=["health"])
     async def health_check():
         """Health check endpoint."""
-        return HealthResponse()
+        # Check memory service availability
+        memory_status = "unavailable"
+        try:
+            is_available = await memory_client.check_health()
+            if is_available:
+                memory_status = "healthy"
+        except Exception as e:
+            logger.debug(f"Memory service health check failed: {e}")
+            memory_status = "unavailable"
+
+        return HealthResponse(memory_service=memory_status)
     
     # WebSocket endpoint - proxy to orchestrator
     @app.websocket("/ws")

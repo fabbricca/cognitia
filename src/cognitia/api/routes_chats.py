@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -10,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from .auth import get_user_id
 from .cache import cache
 from .database import Character, Chat, Message, get_session
+from .memory_client import memory_client
 from .schemas import (
     ChatCreate,
     ChatListResponse,
@@ -227,13 +229,13 @@ async def create_message(
         )
     )
     chat = result.scalar_one_or_none()
-    
+
     if chat is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Chat not found",
         )
-    
+
     message = Message(
         chat_id=chat_id,
         role=data.role,
@@ -241,14 +243,14 @@ async def create_message(
         audio_url=data.audio_url,
     )
     session.add(message)
-    
+
     # Update chat's updated_at
     from datetime import datetime
     chat.updated_at = datetime.utcnow()
-    
+
     await session.commit()
     await session.refresh(message)
-    
+
     # Add to cache
     await cache.append_message(str(chat_id), {
         "id": str(message.id),
@@ -258,5 +260,34 @@ async def create_message(
         "audio_url": message.audio_url,
         "created_at": message.created_at.isoformat(),
     })
-    
+
+    # Ingest conversation turn into memory if this is an assistant message
+    if data.role == "assistant":
+        # Get the most recent user message to form a conversation turn
+        result = await session.execute(
+            select(Message)
+            .where(
+                Message.chat_id == chat_id,
+                Message.role == "user",
+            )
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        )
+        user_message = result.scalar_one_or_none()
+
+        if user_message:
+            # Ingest the conversation turn asynchronously (non-blocking)
+            try:
+                await memory_client.ingest_conversation(
+                    user_id=user_id,
+                    character_id=chat.character_id,
+                    user_message=user_message.content,
+                    assistant_response=message.content,
+                    timestamp=message.created_at,
+                )
+                logger.info(f"Ingested conversation turn for user={user_id}, character={chat.character_id}")
+            except Exception as e:
+                # Don't fail message creation if memory ingestion fails
+                logger.warning(f"Memory ingestion failed (non-critical): {e}")
+
     return MessageResponse.model_validate(message)
