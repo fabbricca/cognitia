@@ -29,7 +29,7 @@ RUN pip install --no-cache-dir \
     psycopg2-binary \
     aiosqlite \
     pydantic \
-    PyJWT \
+    PyJWT[crypto] \
     bcrypt \
     python-multipart \
     aiofiles \
