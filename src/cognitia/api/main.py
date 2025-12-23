@@ -33,6 +33,7 @@ from .routes_auth import router as auth_router
 from .routes_characters import router as characters_router
 from .routes_chats import router as chats_router
 from .routes_memory import router as memory_router
+from .routes_models import router as models_router
 from .routes_subscription import router as subscription_router
 from .schemas import HealthResponse
 
@@ -81,6 +82,7 @@ def create_app() -> FastAPI:
     app.include_router(characters_router, prefix="/api")
     app.include_router(chats_router, prefix="/api")
     app.include_router(memory_router, prefix="/api")
+    app.include_router(models_router, prefix="/api")
     app.include_router(subscription_router, prefix="/api")
     
     # Favicon

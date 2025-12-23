@@ -25,6 +25,9 @@ router = APIRouter(prefix="/characters", tags=["characters"])
 RVC_UPLOAD_DIR = Path(os.getenv("RVC_UPLOAD_DIR", "./data/rvc"))
 RVC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+AVATAR_UPLOAD_DIR = Path(os.getenv("AVATAR_UPLOAD_DIR", "./web/avatars"))
+AVATAR_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 
 @router.get("/", response_model=CharacterListResponse)
 async def list_characters(
@@ -247,4 +250,83 @@ async def upload_voice_model(
     await session.commit()
     await session.refresh(character)
     
+    return CharacterResponse.model_validate(character)
+
+
+@router.post("/{character_id}/voice-model", response_model=CharacterResponse)
+async def upload_voice_model_compat(
+    character_id: UUID,
+    pth_file: UploadFile = File(..., description="RVC .pth model file"),
+    index_file: UploadFile = File(None, description="RVC .index file (optional)"),
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    """Compatibility endpoint for the web UI (/voice-model + pth_file/index_file field names)."""
+    return await upload_voice_model(
+        character_id=character_id,
+        model_file=pth_file,
+        index_file=index_file,
+        user_id=user_id,
+        session=session,
+    )
+
+
+@router.put("/{character_id}/rvc-model", response_model=CharacterResponse)
+async def assign_rvc_model(
+    character_id: UUID,
+    payload: dict,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    """Assign an existing RVC model path to a character."""
+    result = await session.execute(
+        select(Character).where(
+            Character.id == character_id,
+            Character.user_id == user_id,
+        )
+    )
+    character = result.scalar_one_or_none()
+    if character is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found")
+
+    character.rvc_model_path = payload.get("rvc_model_path")
+    character.rvc_index_path = payload.get("rvc_index_path")
+    await session.commit()
+    await session.refresh(character)
+    await cache.set_character(str(character_id), CharacterResponse.model_validate(character).model_dump(mode="json"))
+    return CharacterResponse.model_validate(character)
+
+
+@router.post("/{character_id}/avatar", response_model=CharacterResponse)
+async def upload_character_avatar(
+    character_id: UUID,
+    avatar_file: UploadFile = File(..., description="Avatar image"),
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    """Upload a character avatar image (web UI compatibility)."""
+    result = await session.execute(
+        select(Character).where(
+            Character.id == character_id,
+            Character.user_id == user_id,
+        )
+    )
+    character = result.scalar_one_or_none()
+    if character is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found")
+
+    ext = Path(avatar_file.filename or "avatar").suffix.lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image type")
+
+    filename = f"{character_id}{ext}"
+    target = AVATAR_UPLOAD_DIR / filename
+
+    with open(target, "wb") as f:
+        shutil.copyfileobj(avatar_file.file, f)
+
+    character.avatar_url = f"/avatars/{filename}"
+    await session.commit()
+    await session.refresh(character)
+    await cache.set_character(str(character_id), CharacterResponse.model_validate(character).model_dump(mode="json"))
     return CharacterResponse.model_validate(character)

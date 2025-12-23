@@ -212,6 +212,26 @@ class MemoryClient:
             logger.error(f"Persona deletion failed: {e}")
             return False
 
+    async def get_graph(
+        self,
+        user_id: UUID,
+        character_id: UUID,
+        limit_nodes: int = 200,
+        limit_edges: int = 400,
+    ) -> Optional[Dict[str, Any]]:
+        """Retrieve a UI-friendly knowledge graph snapshot (nodes + edges)."""
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/graph/{user_id}/{character_id}",
+                    params={"limit_nodes": limit_nodes, "limit_edges": limit_edges},
+                )
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            logger.debug(f"Graph retrieval failed: {e}")
+            return None
+
 
 # Global memory client instance
 memory_client = MemoryClient()
