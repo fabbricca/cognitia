@@ -74,7 +74,13 @@ def create_app() -> FastAPI:
         if result.scalar_one_or_none() is not None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
-        user = User(email=data.email, password_hash=hash_password(data.password))
+        user = User(
+            email=data.email,
+            password_hash=hash_password(data.password),
+            role="user",
+            email_verified=False,
+            onboarding_completed=False,
+        )
         session.add(user)
         await session.commit()
         await session.refresh(user)

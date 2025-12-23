@@ -1,17 +1,15 @@
 """Database models and connection for Cognitia API."""
 
 import os
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    Column,
     DateTime,
     ForeignKey,
     String,
     Text,
-    create_engine,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -56,6 +54,20 @@ class User(Base):
     )
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # Optional profile fields (present in the production schema)
+    avatar_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    birthday: Mapped[Optional[date]] = mapped_column(nullable=True)
+
+    # Required account fields (must be present for inserts)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
+    email_verified: Mapped[bool] = mapped_column(nullable=False, default=False)
+    onboarding_completed: Mapped[bool] = mapped_column(nullable=False, default=False)
+    last_active_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    referral_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    referred_by: Mapped[Optional[UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow
     )
