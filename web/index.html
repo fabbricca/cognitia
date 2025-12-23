@@ -511,7 +511,7 @@
     <div id="memory-modal" class="modal-overlay">
         <div class="modal modal-large">
             <div class="modal-header">
-                <h2 id="memory-modal-title">Memory & Relationship</h2>
+                <h2 id="memory-modal-title">Memory</h2>
                 <button class="modal-close" id="close-memory-modal">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -522,67 +522,40 @@
             <div class="modal-body memory-modal-body">
                 <!-- Tabs -->
                 <div class="memory-tabs">
-                    <button class="memory-tab active" data-tab="relationship">Relationship</button>
+                    <button class="memory-tab active" data-tab="graph">Graph</button>
                     <button class="memory-tab" data-tab="facts">Facts</button>
                     <button class="memory-tab" data-tab="memories">Memories</button>
-                    <button class="memory-tab" data-tab="diary">Diary</button>
                 </div>
 
-                <!-- Relationship Tab -->
-                <div class="memory-tab-content active" id="tab-relationship">
-                    <div class="relationship-overview">
-                        <div class="relationship-stage-card">
-                            <div class="relationship-stage-label">Relationship Stage</div>
-                            <div class="relationship-stage-value" id="rel-stage">Stranger</div>
-                            <select class="form-select relationship-stage-select hidden" id="rel-stage-select">
-                                <option value="stranger">Stranger</option>
-                                <option value="acquaintance">Acquaintance</option>
-                                <option value="friend">Friend</option>
-                                <option value="close_friend">Close Friend</option>
-                                <option value="confidant">Confidant</option>
-                                <option value="soulmate">Soulmate</option>
-                            </select>
-                        </div>
-                        <div class="trust-meter">
-                            <div class="trust-label">Trust Level</div>
-                            <div class="trust-bar-container">
-                                <div class="trust-bar" id="rel-trust-bar" style="width: 0%;"></div>
-                            </div>
-                            <div class="trust-value"><span id="rel-trust-value">0</span>/100</div>
-                            <input type="range" class="trust-slider hidden" id="rel-trust-slider" min="0" max="100" value="0">
-                        </div>
-                        <div class="relationship-stats">
-                            <div class="stat-item">
-                                <span class="stat-label">Conversations</span>
-                                <span class="stat-value" id="rel-conversations">0</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">Messages</span>
-                                <span class="stat-value" id="rel-messages">0</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">First Chat</span>
-                                <span class="stat-value" id="rel-first-chat">-</span>
-                            </div>
-                        </div>
-                        <button class="btn btn-secondary btn-sm" id="edit-relationship-btn">Edit</button>
-                        <button class="btn btn-primary btn-sm hidden" id="save-relationship-btn">Save</button>
-                        <button class="btn btn-secondary btn-sm hidden" id="cancel-relationship-btn">Cancel</button>
+                <!-- Graph Tab -->
+                <div class="memory-tab-content active" id="tab-graph">
+                    <div class="memory-toolbar">
+                        <input type="text" class="form-input" id="graph-search" placeholder="Search nodes…">
+                        <button class="btn btn-secondary btn-sm" id="graph-refresh-btn">Refresh</button>
                     </div>
 
-                    <!-- Inside Jokes -->
-                    <div class="memory-subsection">
-                        <h4 class="memory-subsection-title">Inside Jokes</h4>
-                        <div class="memory-list" id="inside-jokes-list">
-                            <p class="empty-message">No inside jokes yet</p>
+                    <div class="memory-graph-layout">
+                        <div class="memory-graph-main">
+                            <div class="memory-graph-columns">
+                                <div class="memory-graph-col">
+                                    <h4 class="memory-subsection-title">Nodes</h4>
+                                    <div class="memory-list" id="graph-nodes-list">
+                                        <p class="empty-message">No graph data yet</p>
+                                    </div>
+                                </div>
+                                <div class="memory-graph-col">
+                                    <h4 class="memory-subsection-title">Edges</h4>
+                                    <div class="memory-list" id="graph-edges-list">
+                                        <p class="empty-message">Select a node to see connections</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-
-                    <!-- Milestones -->
-                    <div class="memory-subsection">
-                        <h4 class="memory-subsection-title">Milestones</h4>
-                        <div class="memory-list" id="milestones-list">
-                            <p class="empty-message">No milestones yet</p>
+                        <div class="memory-graph-details">
+                            <h4 class="memory-subsection-title">Details</h4>
+                            <div class="memory-graph-details-content" id="graph-details">
+                                <p class="empty-message">Select a node or edge</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -617,20 +590,6 @@
                     </div>
                     <div class="memory-list memories-list" id="memories-list">
                         <p class="empty-message">No memories created yet</p>
-                    </div>
-                </div>
-
-                <!-- Diary Tab -->
-                <div class="memory-tab-content" id="tab-diary">
-                    <div class="memory-toolbar">
-                        <select class="form-select" id="diary-type-filter">
-                            <option value="daily">Daily</option>
-                            <option value="weekly">Weekly</option>
-                            <option value="monthly">Monthly</option>
-                        </select>
-                    </div>
-                    <div class="memory-list diary-list" id="diary-list">
-                        <p class="empty-message">No diary entries yet</p>
                     </div>
                 </div>
             </div>

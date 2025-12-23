@@ -12,6 +12,7 @@ from config import settings
 from models import (
     DistillRequest,
     DistillResponse,
+    GraphResponse,
     HealthResponse,
     IngestRequest,
     IngestResponse,
@@ -35,12 +36,13 @@ logger = logging.getLogger(__name__)
 graphiti_client: Optional[Any] = None
 qdrant_client: Optional[Any] = None
 persona_store: Optional[Any] = None
+neo4j_driver: Optional[Any] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for FastAPI app."""
-    global graphiti_client, qdrant_client, persona_store
+    global graphiti_client, qdrant_client, persona_store, neo4j_driver
 
     logger.info("Initializing Memory Add-on Service...")
 
@@ -50,10 +52,25 @@ async def lifespan(app: FastAPI):
         from qdrant_memory import QdrantMemoryClient
         from persona_store import PersonaStore
 
-        # Initialize Graphiti (optional - skip if Ollama not available)
+        # Initialize raw Neo4j driver for graph export (optional).
+        # This should work even if Graphiti/LLM init fails.
+        try:
+            from neo4j import AsyncGraphDatabase
+
+            logger.info(f"Connecting to Neo4j at {settings.NEO4J_URI}...")
+            neo4j_driver = AsyncGraphDatabase.driver(
+                settings.NEO4J_URI,
+                auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+            )
+            logger.info("Neo4j async driver initialized")
+        except Exception as e:
+            logger.warning(f"Neo4j driver initialization failed (optional): {e}")
+            neo4j_driver = None
+
+        # Initialize Graphiti (optional - depends on Graphiti + Ollama/OpenAI-compatible endpoint)
         try:
             from graphiti_client import GraphitiMemoryClient
-            logger.info(f"Connecting to Neo4j at {settings.NEO4J_URI}...")
+
             graphiti_client = GraphitiMemoryClient(
                 neo4j_uri=settings.NEO4J_URI,
                 neo4j_user=settings.NEO4J_USER,
@@ -89,6 +106,11 @@ async def lifespan(app: FastAPI):
 
     # Cleanup on shutdown
     logger.info("Shutting down Memory Add-on Service...")
+    try:
+        if neo4j_driver is not None:
+            await neo4j_driver.close()
+    except Exception:
+        pass
 
 
 # Create FastAPI app
@@ -187,35 +209,52 @@ Focus on:
 
 Return ONLY valid JSON:'''
 
-        response_text = await call_ollama(
-            prompt=extraction_prompt,
-            model=settings.OLLAMA_MODEL,
-            ollama_url=settings.OLLAMA_URL,
-            temperature=0.3,
-        )
+        extraction = None
+        llm_error: Optional[str] = None
+        try:
+            response_text = await call_ollama(
+                prompt=extraction_prompt,
+                model=settings.OLLAMA_MODEL,
+                ollama_url=settings.OLLAMA_URL,
+                temperature=0.3,
+                timeout=15.0,
+            )
+            extraction = extract_json_from_response(response_text)
+        except Exception as e:
+            # Ollama connectivity is environment-dependent (GPU server / in-cluster routing).
+            # Do not hard-fail ingestion if LLM is temporarily unavailable.
+            llm_error = str(e)
+            logger.warning(f"Ollama unavailable during ingestion; continuing without extraction: {e}")
 
-        extraction = extract_json_from_response(response_text)
         if not extraction:
-            logger.warning("Failed to extract facts, using defaults")
-            extraction = {
-                "facts": [],
-                "emotional_tone": "neutral",
-                "salience_score": 0.5,
-                "user_name": None,
-            }
+            logger.info("No LLM extraction available; using request.extracted_facts (if any) and defaults")
+            extraction = {}
 
-        facts = extraction.get("facts", [])
+        # Prefer extracted facts from the LLM, but allow upstream callers (Entrance) to supply facts.
+        facts = extraction.get("facts") or request.extracted_facts or []
         emotional_tone = extraction.get("emotional_tone", "neutral")
-        salience_score = extraction.get("salience_score", 0.5)
+
+        # If we didn't run extraction, keep salience conservative so we don't store every turn.
+        try:
+            salience_score = float(extraction.get("salience_score", 0.0))
+        except Exception:
+            salience_score = 0.0
+
         user_name = extraction.get("user_name")
 
         logger.info(f"Extracted {len(facts)} facts, tone={emotional_tone}, salience={salience_score}")
+
+        # Decide whether this turn is worth persisting.
+        # Goal: keep high-signal facts/entities, avoid storing every exchange verbatim.
+        should_persist = (len(facts) >= settings.MIN_FACTS_FOR_STORAGE) or (
+            salience_score >= settings.MIN_EPISODE_SALIENCE_TO_STORE
+        )
 
         # 2. Store in Graphiti knowledge graph (if available)
         entities_created = 0
         relationships_created = 0
 
-        if graphiti_client:
+        if graphiti_client and should_persist:
             try:
                 result = await graphiti_client.ingest_conversation(
                     user_id=str(request.user_id),
@@ -231,10 +270,11 @@ Return ONLY valid JSON:'''
             except Exception as e:
                 logger.warning(f"Graphiti ingestion failed (non-critical): {e}")
 
-        # 3. Store episode in Qdrant
-        episode_id = str(uuid.uuid4())
+        # 3. Store episode in Qdrant (only if worth persisting)
+        episode_id = None
 
-        if qdrant_client:
+        if qdrant_client and should_persist:
+            episode_id = str(uuid.uuid4())
             try:
                 await qdrant_client.ingest_episode(
                     episode_id=episode_id,
@@ -256,7 +296,18 @@ Return ONLY valid JSON:'''
             relationships_created=relationships_created,
             episode_id=episode_id,
             salience_score=salience_score,
-            status=f"Ingested with {len(facts)} facts extracted",
+            status=(
+                (
+                    f"Stored ({len(facts)} facts, salience={salience_score:.2f})"
+                    if should_persist
+                    else f"Skipped storage (low-signal: {len(facts)} facts, salience={salience_score:.2f})"
+                )
+                + (
+                    " (LLM unavailable)"
+                    if llm_error is not None
+                    else ""
+                )
+            ),
         )
 
     except Exception as e:
@@ -465,6 +516,77 @@ async def get_person(person_id: str, user_id: str, character_id: str):
         )
 
 
+@app.get("/graph/{user_id}/{character_id}", response_model=GraphResponse)
+async def get_graph(user_id: str, character_id: str, limit_nodes: int = 200, limit_edges: int = 400):
+    """Export a UI-friendly subgraph for this user-character pair.
+
+    This is intended for visualization/debugging in the web UI.
+    """
+    group_id = f"{user_id}_{character_id}"
+
+    if neo4j_driver is None:
+        return GraphResponse(
+            available=False,
+            group_id=group_id,
+            nodes=[],
+            edges=[],
+        )
+
+    limit_nodes = max(1, min(2000, int(limit_nodes)))
+    limit_edges = max(1, min(5000, int(limit_edges)))
+
+    cypher = """
+    MATCH (n)
+    WHERE n.group_id = $group_id
+       OR n.groupId = $group_id
+       OR $group_id IN coalesce(n.group_ids, [])
+       OR $group_id IN coalesce(n.groupIds, [])
+    WITH n LIMIT $limit_nodes
+    WITH collect(DISTINCT n) AS ns
+    CALL {
+      WITH ns
+      UNWIND ns AS n
+      MATCH (n)-[r]-(m)
+      WHERE m.group_id = $group_id
+         OR m.groupId = $group_id
+         OR $group_id IN coalesce(m.group_ids, [])
+         OR $group_id IN coalesce(m.groupIds, [])
+      RETURN DISTINCT r LIMIT $limit_edges
+    }
+    WITH ns, collect(DISTINCT r) AS rs
+    RETURN
+      [n IN ns | {id: elementId(n), labels: labels(n), properties: properties(n)}] AS nodes,
+      [r IN rs | {id: elementId(r), type: type(r), source: elementId(startNode(r)), target: elementId(endNode(r)), properties: properties(r)}] AS edges
+    """
+
+    try:
+        async with neo4j_driver.session() as session:
+            result = await session.run(
+                cypher,
+                group_id=group_id,
+                limit_nodes=limit_nodes,
+                limit_edges=limit_edges,
+            )
+            record = await result.single()
+
+        nodes = record.get("nodes", []) if record else []
+        edges = record.get("edges", []) if record else []
+        return GraphResponse(
+            available=True,
+            group_id=group_id,
+            nodes=nodes,
+            edges=edges,
+        )
+    except Exception as e:
+        logger.warning(f"Graph export failed (non-critical): {e}")
+        return GraphResponse(
+            available=False,
+            group_id=group_id,
+            nodes=[],
+            edges=[],
+        )
+
+
 @app.post("/distill", response_model=DistillResponse)
 async def distill_persona(request: DistillRequest):
     """Trigger persona distillation for user."""
@@ -478,13 +600,24 @@ async def distill_persona(request: DistillRequest):
                 detail="Memory services not initialized (Qdrant or PersonaStore missing)",
             )
 
-        # Distill persona using PersonaStore
-        persona = await persona_store.distill_persona(
-            user_id=request.user_id,
-            character_id=request.character_id,
-            graphiti_client=graphiti_client,
-            qdrant_client=qdrant_client,
-        )
+        # Distill persona using PersonaStore.
+        # Distillation depends on Ollama; failures should not crash the service.
+        try:
+            persona = await persona_store.distill_persona(
+                user_id=request.user_id,
+                character_id=request.character_id,
+                graphiti_client=graphiti_client,
+                qdrant_client=qdrant_client,
+            )
+        except Exception as e:
+            logger.warning(f"Persona distillation failed (non-fatal): {e}")
+            return DistillResponse(
+                success=False,
+                persona={"error": str(e)},
+                facts_processed=0,
+                episodes_processed=0,
+                token_count=0,
+            )
 
         # Count facts and episodes (from saved metadata)
         persona_data_path = persona_store._get_persona_path(request.user_id, request.character_id)
@@ -512,11 +645,16 @@ async def distill_persona(request: DistillRequest):
             token_count=token_count,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Persona distillation failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Distillation failed: {str(e)}",
+        return DistillResponse(
+            success=False,
+            persona={"error": str(e)},
+            facts_processed=0,
+            episodes_processed=0,
+            token_count=0,
         )
 
 

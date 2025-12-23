@@ -41,11 +41,12 @@ RUN pip install --no-cache-dir \
     celery[redis] \
     redis \
     stripe \
-    python-dotenv
+    python-dotenv \
+    cryptography
 
-# Copy source code - only entrance module needed
-RUN mkdir -p ./cognitia && echo '"""Cognitia Entrance."""\n__version__ = "0.1.0"' > ./cognitia/__init__.py
-COPY src/cognitia/entrance ./cognitia/entrance
+# Copy source code - only API module needed
+RUN mkdir -p ./cognitia && echo '"""Cognitia API."""\n__version__ = "0.1.0"' > ./cognitia/__init__.py
+COPY src/cognitia/api ./cognitia/api
 
 # Copy web frontend
 COPY web ./web
@@ -77,5 +78,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the Entrance server
-CMD ["python", "-m", "uvicorn", "cognitia.entrance.server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the API server
+CMD ["python", "-m", "uvicorn", "cognitia.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

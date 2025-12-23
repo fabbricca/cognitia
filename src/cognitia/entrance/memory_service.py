@@ -287,6 +287,7 @@ class MemoryService:
         # Store extracted facts
         facts = extraction.get("facts", [])
         logger.info(f"📝 Processing {len(facts)} facts from LLM response")
+        stored_fact_categories: set[str] = set()
         for fact in facts:
             # Validate fact has required fields
             fact_key = fact.get("key", "").strip()
@@ -307,13 +308,53 @@ class MemoryService:
                     confidence=fact.get("confidence", 0.8),
                 )
                 result["facts_extracted"] += 1
+                stored_fact_categories.add(fact.get("category", "personal"))
                 logger.debug(f"✅ Stored fact: {fact_key} = {fact_value}")
             except Exception as fact_err:
                 logger.error(f"❌ Failed to store fact {fact_key}: {fact_err}", exc_info=True)
 
-        # Create episodic memory if important
-        importance = extraction.get("importance", 0.3)
-        if extraction.get("should_create_memory", False) and importance > 0.5:
+        # Create episodic memory only for high-signal turns.
+        # We intentionally avoid storing every exchange.
+        importance = float(extraction.get("importance", 0.3) or 0.3)
+
+        # Tighten conditions beyond the LLM's raw suggestion.
+        llm_wants_memory = bool(extraction.get("should_create_memory", False))
+        has_any_facts = result["facts_extracted"] > 0
+        has_high_signal_fact = bool(stored_fact_categories.intersection({"life_event", "relationship", "trait"}))
+
+        should_create_memory = (
+            llm_wants_memory
+            and (
+                importance >= 0.85
+                or (importance >= 0.70 and has_any_facts)
+                or (importance >= 0.60 and has_high_signal_fact)
+            )
+        )
+
+        # Cooldown: avoid creating multiple episodic memories in quick succession for the same chat.
+        # Allow override only for very high-importance turns.
+        if should_create_memory and importance < 0.95:
+            from sqlalchemy import select
+            from .database import Memory
+
+            stmt = (
+                select(Memory)
+                .where(
+                    Memory.user_id == user_id,
+                    Memory.character_id == character_id,
+                    Memory.source_chat_id == chat_id,
+                    Memory.memory_type == "episodic",
+                )
+                .order_by(Memory.created_at.desc())
+                .limit(1)
+            )
+            last = (await session.execute(stmt)).scalar_one_or_none()
+            if last is not None:
+                seconds_since_last = (datetime.utcnow() - last.created_at).total_seconds()
+                if seconds_since_last < 15 * 60:
+                    should_create_memory = False
+
+        if should_create_memory:
             try:
                 logger.info(f"💾 Creating episodic memory (importance={importance})")
                 await self._create_episodic_memory(

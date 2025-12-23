@@ -202,3 +202,29 @@ class MemoryContextResponse(BaseModel):
     facts: List[UserFactResponse]
     recent_memories: List[MemoryResponse]
     context_string: str  # The actual context that would be injected into LLM
+
+
+# =============================================================================
+# Knowledge Graph (Memory Add-on / Graphiti)
+# =============================================================================
+
+
+class GraphNode(BaseModel):
+    id: str
+    labels: List[str] = Field(default_factory=list)
+    properties: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphEdge(BaseModel):
+    id: str
+    type: str
+    source: str
+    target: str
+    properties: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphResponse(BaseModel):
+    available: bool
+    group_id: Optional[str] = None
+    nodes: List[GraphNode] = Field(default_factory=list)
+    edges: List[GraphEdge] = Field(default_factory=list)

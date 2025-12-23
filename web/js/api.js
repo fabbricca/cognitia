@@ -6,6 +6,16 @@
 export class ApiClient {
     constructor(baseUrl = '') {
         this.baseUrl = baseUrl;
+        // Auth service runs on a dedicated host in production.
+        // For local/dev setups, fall back to same origin.
+        try {
+            const host = window?.location?.hostname || '';
+            this.authBaseUrl = host.endsWith('cognitia.iberu.me')
+                ? 'https://auth.cognitia.iberu.me'
+                : baseUrl;
+        } catch {
+            this.authBaseUrl = baseUrl;
+        }
         this.token = localStorage.getItem('glados_token');
         this.refreshToken = localStorage.getItem('glados_refresh_token');
     }
@@ -98,7 +108,7 @@ export class ApiClient {
 
     async refreshAccessToken() {
         try {
-            const response = await fetch(`${this.baseUrl}/api/auth/refresh`, {
+            const response = await fetch(`${this.authBaseUrl}/api/auth/refresh`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -121,15 +131,29 @@ export class ApiClient {
 
     // Auth endpoints
     async register(email, password) {
-        return this.request('POST', '/api/auth/register', { email, password });
+        const data = await fetch(`${this.authBaseUrl}/api/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        const payload = await this.handleResponse(data);
+        if (payload.access_token) {
+            this.setToken(payload.access_token, payload.refresh_token);
+        }
+        return payload;
     }
 
     async login(email, password) {
-        const data = await this.request('POST', '/api/auth/login', { email, password });
-        if (data.access_token) {
-            this.setToken(data.access_token, data.refresh_token);
+        const response = await fetch(`${this.authBaseUrl}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        const payload = await this.handleResponse(response);
+        if (payload.access_token) {
+            this.setToken(payload.access_token, payload.refresh_token);
         }
-        return data;
+        return payload;
     }
 
     async logout() {
@@ -583,6 +607,15 @@ export class ApiClient {
      */
     async getDiaryEntries(characterId, entryType = 'daily', limit = 30) {
         return this.request('GET', `/api/memory/${characterId}/diary?entry_type=${entryType}&limit=${limit}`);
+    }
+
+    /**
+     * Get a knowledge graph snapshot (nodes + edges) for this user-character pair.
+     * @param {string} characterId
+     * @returns {Promise<object>} - Graph response {available, group_id, nodes, edges}
+     */
+    async getMemoryGraph(characterId) {
+        return this.request('GET', `/api/memory/${characterId}/graph`);
     }
 }
 

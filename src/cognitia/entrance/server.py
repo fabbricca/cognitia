@@ -106,6 +106,7 @@ from .schemas.memory import (
     RelationshipResponse,
     RelationshipUpdate,
     MemoryContextResponse,
+    GraphResponse,
     DiaryEntryResponse,
     DiaryListResponse,
 )
@@ -1442,42 +1443,17 @@ async def get_user_facts(
     user_id: UUID = Depends(get_user_id),
     session: AsyncSession = Depends(get_session_dep),
 ):
-    """Get all facts the AI knows about the user for a specific character (via Memory Add-on Service)."""
-    try:
-        # Retrieve memories from Memory Add-on Service
-        response = await memory_client.retrieve_memory(
-            user_id=user_id,
-            character_id=character_id,
-            query="",  # Empty query retrieves general context
-            limit=20,
-        )
+    """Get facts the system saved about the user for a specific character.
 
-        # Convert memories to facts format for frontend compatibility
-        facts = []
-        if response and "memories" in response:
-            for memory in response["memories"]:
-                # Extract fact-like information from memories
-                facts.append({
-                    "key": memory.get("type", "memory"),
-                    "value": memory.get("content", "")[:200],  # Truncate long content
-                    "category": category or "general",
-                    "confidence": memory.get("score", 0.5),
-                    "source": "memory_addon",
-                    "created_at": memory.get("timestamp", ""),
-                })
-
-        # Filter by category if specified
-        if category:
-            facts = [f for f in facts if f.get("category") == category]
-
-        return UserFactListResponse(
-            facts=facts,
-            total=len(facts)
-        )
-
-    except Exception as e:
-        logger.warning(f"Memory Add-on retrieval failed, returning empty: {e}")
-        return UserFactListResponse(facts=[], total=0)
+    Notes:
+    - These are the persisted `UserFact` rows (extracted + manually added).
+    - This endpoint intentionally does NOT return Qdrant episodes.
+    """
+    facts = await memory_service.get_user_facts(session, user_id, character_id, category=category)
+    return UserFactListResponse(
+        facts=[UserFactResponse.model_validate(f) for f in facts],
+        total=len(facts),
+    )
 
 
 @app.post("/api/memory/{character_id}/facts", response_model=UserFactResponse, tags=["memory"])
@@ -1502,10 +1478,10 @@ async def create_user_fact(
     return UserFactResponse.model_validate(new_fact)
 
 
-@app.delete("/api/memory/{character_id}/facts/{fact_key}", status_code=status.HTTP_204_NO_CONTENT, tags=["memory"])
+@app.delete("/api/memory/{character_id}/facts/{fact_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["memory"])
 async def delete_user_fact(
     character_id: UUID,
-    fact_key: str,
+    fact_id: UUID,
     user_id: UUID = Depends(get_user_id),
     session: AsyncSession = Depends(get_session_dep),
 ):
@@ -1515,11 +1491,31 @@ async def delete_user_fact(
         and_(
             UserFact.user_id == user_id,
             UserFact.character_id == character_id,
-            UserFact.key == fact_key,
+            UserFact.id == fact_id,
         )
     )
     await session.execute(stmt)
     await session.commit()
+
+
+@app.get("/api/memory/{character_id}/graph", response_model=GraphResponse, tags=["memory"])
+async def get_memory_graph(
+    character_id: UUID,
+    user_id: UUID = Depends(get_user_id),
+):
+    """Return a UI-friendly snapshot of the Graphiti/Neo4j knowledge graph.
+
+    This endpoint proxies to the Memory Add-on service.
+    """
+    graph = await memory_client.get_graph(user_id=user_id, character_id=character_id)
+    if not graph:
+        return GraphResponse(
+            available=False,
+            group_id=f"{user_id}_{character_id}",
+            nodes=[],
+            edges=[],
+        )
+    return graph
 
 
 @app.get("/api/memory/{character_id}/memories", response_model=MemoryListResponse, tags=["memory"])

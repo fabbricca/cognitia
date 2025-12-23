@@ -36,7 +36,11 @@ from .routes_memory import router as memory_router
 from .schemas import HealthResponse
 
 # Orchestrator connection settings
-ORCHESTRATOR_URL = os.getenv("COGNITIA_ORCHESTRATOR_URL", "http://10.0.0.15:8080")
+# Keep backward compatibility with existing k8s env naming.
+ORCHESTRATOR_URL = os.getenv(
+    "COGNITIA_ORCHESTRATOR_URL",
+    os.getenv("COGNITIA_CORE_URL", "http://10.0.0.15:8080"),
+)
 
 
 @asynccontextmanager
@@ -124,7 +128,7 @@ def create_app() -> FastAPI:
                 return
             
             token = auth_msg.get("token", "")
-            user_id = verify_token(token)
+            user_id = await verify_token(token)
             
             if not user_id:
                 await websocket.send_json({

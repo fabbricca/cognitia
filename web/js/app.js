@@ -192,6 +192,12 @@ class CognitiaApp {
             closeMemoryModal: document.getElementById('close-memory-modal'),
             memoryTabs: document.querySelectorAll('.memory-tab'),
             memoryTabContents: document.querySelectorAll('.memory-tab-content'),
+            // Graph tab
+            graphSearch: document.getElementById('graph-search'),
+            graphRefreshBtn: document.getElementById('graph-refresh-btn'),
+            graphNodesList: document.getElementById('graph-nodes-list'),
+            graphEdgesList: document.getElementById('graph-edges-list'),
+            graphDetails: document.getElementById('graph-details'),
             // Relationship tab
             relStage: document.getElementById('rel-stage'),
             relStageSelect: document.getElementById('rel-stage-select'),
@@ -439,6 +445,15 @@ class CognitiaApp {
             tab.addEventListener('click', () => {
                 this.switchMemoryTab(tab.dataset.tab);
             });
+        });
+
+        // Graph events
+        this.elements.graphRefreshBtn?.addEventListener('click', () => {
+            this.loadGraph();
+        });
+
+        this.elements.graphSearch?.addEventListener('input', () => {
+            this.renderGraphNodes();
         });
         
         // Relationship edit
@@ -2352,8 +2367,7 @@ class CognitiaApp {
         this.elements.memoryModal?.classList.add('active');
         
         // Load initial data
-        await this.loadRelationship();
-        this.switchMemoryTab('relationship');
+        this.switchMemoryTab('graph');
     }
     
     hideMemoryModal() {
@@ -2373,8 +2387,8 @@ class CognitiaApp {
         
         // Load data for the active tab
         switch (tabName) {
-            case 'relationship':
-                this.loadRelationship();
+            case 'graph':
+                this.loadGraph();
                 break;
             case 'facts':
                 this.loadFacts();
@@ -2382,9 +2396,218 @@ class CognitiaApp {
             case 'memories':
                 this.loadMemories();
                 break;
-            case 'diary':
-                this.loadDiary();
-                break;
+        }
+    }
+
+    // Graph (knowledge graph snapshot)
+    async loadGraph() {
+        if (!this.currentCharacter) return;
+
+        const nodesContainer = this.elements.graphNodesList;
+        const edgesContainer = this.elements.graphEdgesList;
+        const detailsContainer = this.elements.graphDetails;
+
+        try {
+            if (nodesContainer) {
+                nodesContainer.innerHTML = '<p class="empty-message">Loading graph…</p>';
+            }
+            if (edgesContainer) {
+                edgesContainer.innerHTML = '<p class="empty-message">Loading…</p>';
+            }
+            if (detailsContainer) {
+                detailsContainer.innerHTML = '<p class="empty-message">Select a node or edge</p>';
+            }
+
+            const graph = await api.getMemoryGraph(this.currentCharacter.id);
+            this._graphCache = graph || { available: false, nodes: [], edges: [], group_id: null };
+            this._selectedGraphNodeId = null;
+            this._selectedGraphEdgeId = null;
+
+            this.renderGraphNodes();
+            this.renderGraphEdges();
+        } catch (error) {
+            console.error('Failed to load graph:', error);
+            this._graphCache = { available: false, nodes: [], edges: [], group_id: null };
+            if (nodesContainer) {
+                nodesContainer.innerHTML = '<p class="empty-message">Graph unavailable</p>';
+            }
+            if (edgesContainer) {
+                edgesContainer.innerHTML = '<p class="empty-message">Graph unavailable</p>';
+            }
+            this.showToast('Failed to load graph', 'error');
+        }
+    }
+
+    getGraphNodeLabel(node) {
+        const props = node?.properties || {};
+        return (
+            props.name ||
+            props.title ||
+            props.label ||
+            props.id ||
+            node.id
+        );
+    }
+
+    renderGraphNodes() {
+        const container = this.elements.graphNodesList;
+        if (!container) return;
+
+        const graph = this._graphCache || { available: false, nodes: [], edges: [] };
+        if (!graph.available) {
+            container.innerHTML = '<p class="empty-message">Graph not available (Graphiti/Neo4j not connected)</p>';
+            return;
+        }
+
+        const query = (this.elements.graphSearch?.value || '').trim().toLowerCase();
+        const nodes = (graph.nodes || []).slice();
+
+        const filtered = query
+            ? nodes.filter(n => {
+                const label = this.getGraphNodeLabel(n).toLowerCase();
+                const labels = (n.labels || []).join(' ').toLowerCase();
+                return label.includes(query) || labels.includes(query);
+            })
+            : nodes;
+
+        if (filtered.length === 0) {
+            container.innerHTML = '<p class="empty-message">No nodes</p>';
+            return;
+        }
+
+        container.innerHTML = filtered
+            .sort((a, b) => this.getGraphNodeLabel(a).localeCompare(this.getGraphNodeLabel(b)))
+            .map(n => {
+                const selected = this._selectedGraphNodeId === n.id ? 'selected' : '';
+                const labels = (n.labels || []).slice(0, 3).join(', ');
+                return `
+                    <div class="graph-item ${selected}" onclick="app.selectGraphNode('${n.id}')">
+                        <div class="graph-item-title">${this.escapeHtml(this.getGraphNodeLabel(n))}</div>
+                        <div class="graph-item-subtitle">${this.escapeHtml(labels || 'node')}</div>
+                    </div>
+                `;
+            })
+            .join('');
+    }
+
+    renderGraphEdges() {
+        const container = this.elements.graphEdgesList;
+        if (!container) return;
+
+        const graph = this._graphCache || { available: false, nodes: [], edges: [] };
+        if (!graph.available) {
+            container.innerHTML = '<p class="empty-message">Graph not available</p>';
+            return;
+        }
+
+        const edges = graph.edges || [];
+        if (!this._selectedGraphNodeId) {
+            container.innerHTML = '<p class="empty-message">Select a node to see connections</p>';
+            return;
+        }
+
+        const nodeMap = (graph.nodes || []).reduce((acc, n) => { acc[n.id] = n; return acc; }, {});
+        const connected = edges.filter(e => e.source === this._selectedGraphNodeId || e.target === this._selectedGraphNodeId);
+
+        if (connected.length === 0) {
+            container.innerHTML = '<p class="empty-message">No edges for this node</p>';
+            return;
+        }
+
+        container.innerHTML = connected.map(e => {
+            const selected = this._selectedGraphEdgeId === e.id ? 'selected' : '';
+            const otherId = e.source === this._selectedGraphNodeId ? e.target : e.source;
+            const otherNode = nodeMap[otherId];
+            const otherLabel = otherNode ? this.getGraphNodeLabel(otherNode) : otherId;
+            return `
+                <div class="graph-item ${selected}" onclick="app.selectGraphEdge('${e.id}')">
+                    <div class="graph-item-title">${this.escapeHtml(e.type || 'RELATED_TO')}</div>
+                    <div class="graph-item-subtitle">${this.escapeHtml(otherLabel)}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    selectGraphNode(nodeId) {
+        this._selectedGraphNodeId = nodeId;
+        this._selectedGraphEdgeId = null;
+
+        this.renderGraphNodes();
+        this.renderGraphEdges();
+        this.showGraphDetails({ kind: 'node', id: nodeId });
+    }
+
+    selectGraphEdge(edgeId) {
+        this._selectedGraphEdgeId = edgeId;
+        this.renderGraphEdges();
+        this.showGraphDetails({ kind: 'edge', id: edgeId });
+    }
+
+    showGraphDetails(selection) {
+        const container = this.elements.graphDetails;
+        if (!container) return;
+
+        const graph = this._graphCache || { nodes: [], edges: [] };
+        const nodeMap = (graph.nodes || []).reduce((acc, n) => { acc[n.id] = n; return acc; }, {});
+        const edgeMap = (graph.edges || []).reduce((acc, e) => { acc[e.id] = e; return acc; }, {});
+
+        if (!selection) {
+            container.innerHTML = '<p class="empty-message">Select a node or edge</p>';
+            return;
+        }
+
+        if (selection.kind === 'node') {
+            const node = nodeMap[selection.id];
+            if (!node) {
+                container.innerHTML = '<p class="empty-message">Node not found</p>';
+                return;
+            }
+
+            const props = node.properties || {};
+            const rows = Object.entries(props)
+                .slice(0, 40)
+                .map(([k, v]) => `
+                    <div class="graph-k">${this.escapeHtml(String(k))}</div>
+                    <div class="graph-v">${this.escapeHtml(typeof v === 'string' ? v : JSON.stringify(v))}</div>
+                `)
+                .join('');
+
+            container.innerHTML = `
+                <div class="graph-item-title">${this.escapeHtml(this.getGraphNodeLabel(node))}</div>
+                <div class="graph-item-subtitle">${this.escapeHtml((node.labels || []).join(', ') || 'node')}</div>
+                <div style="height: 12px"></div>
+                <div class="graph-kv">${rows || '<div class="graph-k">(no properties)</div><div class="graph-v"></div>'}</div>
+            `;
+            return;
+        }
+
+        if (selection.kind === 'edge') {
+            const edge = edgeMap[selection.id];
+            if (!edge) {
+                container.innerHTML = '<p class="empty-message">Edge not found</p>';
+                return;
+            }
+
+            const fromNode = nodeMap[edge.source];
+            const toNode = nodeMap[edge.target];
+            const fromLabel = fromNode ? this.getGraphNodeLabel(fromNode) : edge.source;
+            const toLabel = toNode ? this.getGraphNodeLabel(toNode) : edge.target;
+
+            const props = edge.properties || {};
+            const rows = Object.entries(props)
+                .slice(0, 40)
+                .map(([k, v]) => `
+                    <div class="graph-k">${this.escapeHtml(String(k))}</div>
+                    <div class="graph-v">${this.escapeHtml(typeof v === 'string' ? v : JSON.stringify(v))}</div>
+                `)
+                .join('');
+
+            container.innerHTML = `
+                <div class="graph-item-title">${this.escapeHtml(edge.type || 'RELATIONSHIP')}</div>
+                <div class="graph-item-subtitle">${this.escapeHtml(fromLabel)} → ${this.escapeHtml(toLabel)}</div>
+                <div style="height: 12px"></div>
+                <div class="graph-kv">${rows || '<div class="graph-k">(no properties)</div><div class="graph-v"></div>'}</div>
+            `;
         }
     }
     

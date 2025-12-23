@@ -26,6 +26,7 @@ class IngestResponse(BaseModel):
     relationships_created: int = Field(0, description="Number of relationships created")
     episode_id: Optional[str] = Field(None, description="ID of stored episode")
     salience_score: float = Field(0.0, description="Calculated salience score")
+    status: Optional[str] = Field(None, description="Status message with additional details")
 
 
 class RetrieveRequest(BaseModel):
@@ -73,6 +74,38 @@ class PersonResponse(BaseModel):
     relationships: List[Dict[str, Any]] = Field(
         default_factory=list, description="Relationships with other entities"
     )
+
+
+# =============================================================================
+# Knowledge Graph (Graphiti/Neo4j) Export
+# =============================================================================
+
+
+class GraphNode(BaseModel):
+    """A graph node suitable for UI rendering."""
+
+    id: str = Field(..., description="Stable node identifier (Neo4j element id)")
+    labels: List[str] = Field(default_factory=list, description="Neo4j labels")
+    properties: Dict[str, Any] = Field(default_factory=dict, description="Node properties")
+
+
+class GraphEdge(BaseModel):
+    """A graph edge suitable for UI rendering."""
+
+    id: str = Field(..., description="Stable edge identifier (Neo4j element id)")
+    type: str = Field(..., description="Relationship type")
+    source: str = Field(..., description="Source node id")
+    target: str = Field(..., description="Target node id")
+    properties: Dict[str, Any] = Field(default_factory=dict, description="Edge properties")
+
+
+class GraphResponse(BaseModel):
+    """Response model for exporting a subgraph."""
+
+    available: bool = Field(..., description="Whether graph export is available")
+    group_id: Optional[str] = Field(None, description="Graphiti group id used for scoping")
+    nodes: List[GraphNode] = Field(default_factory=list)
+    edges: List[GraphEdge] = Field(default_factory=list)
 
 
 class DistillRequest(BaseModel):
