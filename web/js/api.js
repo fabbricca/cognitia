@@ -7,12 +7,11 @@ export class ApiClient {
     constructor(baseUrl = '') {
         this.baseUrl = baseUrl;
         // Auth service runs on a dedicated host in production.
-        // For local/dev setups, fall back to same origin.
+        // But if the public edge proxy is not routing auth.cognitia.iberu.me correctly yet,
+        // we can use same-origin via ingress routing (/api/auth -> cognitia-auth).
         try {
             const host = window?.location?.hostname || '';
-            this.authBaseUrl = host.endsWith('cognitia.iberu.me')
-                ? 'https://auth.cognitia.iberu.me'
-                : baseUrl;
+            this.authBaseUrl = host.endsWith('cognitia.iberu.me') ? '' : baseUrl;
         } catch {
             this.authBaseUrl = baseUrl;
         }

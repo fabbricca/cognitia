@@ -1,0 +1,9 @@
+FROM nginx:1.27-alpine
+
+# Copy static web app
+COPY web/ /usr/share/nginx/html/
+
+# Minimal nginx config for static files
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
