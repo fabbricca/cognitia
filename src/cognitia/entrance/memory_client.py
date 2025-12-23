@@ -125,6 +125,26 @@ class MemoryClient:
             logger.error(f"Memory retrieval failed: {e}")
             return None
 
+    async def retrieve_memory(
+        self,
+        user_id: UUID,
+        character_id: UUID,
+        query: Optional[str] = None,
+        limit: int = 10,
+    ) -> Optional[Dict[str, Any]]:
+        """Retrieve memory context (alias for retrieve_context).
+
+        Args:
+            user_id: User ID
+            character_id: Character ID
+            query: Optional query for semantic search
+            limit: Maximum number of memories to retrieve
+
+        Returns:
+            Retrieval response with context or None if failed
+        """
+        return await self.retrieve_context(user_id, character_id, query, limit)
+
     async def get_persona(
         self,
         user_id: UUID,
