@@ -74,10 +74,12 @@ def create_app() -> FastAPI:
     )
     
     # Include routers
-    app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
-    app.include_router(characters_router, prefix="/api/characters", tags=["characters"])
-    app.include_router(chats_router, prefix="/api/chats", tags=["chats"])
-    app.include_router(memory_router, prefix="/api/memory", tags=["memory"])
+    # Routers define their own prefixes (e.g. /auth, /characters, /chats, /memory),
+    # so we mount them once under /api.
+    app.include_router(auth_router, prefix="/api")
+    app.include_router(characters_router, prefix="/api")
+    app.include_router(chats_router, prefix="/api")
+    app.include_router(memory_router, prefix="/api")
     
     # Favicon
     @app.get("/favicon.ico", include_in_schema=False)
