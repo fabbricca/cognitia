@@ -189,6 +189,8 @@ def create_app() -> FastAPI:
             logger.error(f"WebSocket error: {e}")
             await websocket.close()
 
+    return app
+
 
 async def bridge_to_orchestrator(
     client_ws: WebSocket,
@@ -274,8 +276,6 @@ async def bridge_to_orchestrator(
             "mode": "text-only"
         })
         await text_only_mode(client_ws, user_id)
-
-    return app
 
 
 async def text_only_mode(websocket: WebSocket, user_id: str):
