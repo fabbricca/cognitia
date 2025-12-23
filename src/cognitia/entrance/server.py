@@ -1442,14 +1442,42 @@ async def get_user_facts(
     user_id: UUID = Depends(get_user_id),
     session: AsyncSession = Depends(get_session_dep),
 ):
-    """Get all facts the AI knows about the user for a specific character."""
-    facts = await memory_service.get_user_facts(
-        session, user_id, character_id, category=category
-    )
-    return UserFactListResponse(
-        facts=[UserFactResponse.model_validate(f) for f in facts],
-        total=len(facts)
-    )
+    """Get all facts the AI knows about the user for a specific character (via Memory Add-on Service)."""
+    try:
+        # Retrieve memories from Memory Add-on Service
+        response = await memory_client.retrieve_memory(
+            user_id=user_id,
+            character_id=character_id,
+            query="",  # Empty query retrieves general context
+            limit=20,
+        )
+
+        # Convert memories to facts format for frontend compatibility
+        facts = []
+        if response and "memories" in response:
+            for memory in response["memories"]:
+                # Extract fact-like information from memories
+                facts.append({
+                    "key": memory.get("type", "memory"),
+                    "value": memory.get("content", "")[:200],  # Truncate long content
+                    "category": category or "general",
+                    "confidence": memory.get("score", 0.5),
+                    "source": "memory_addon",
+                    "created_at": memory.get("timestamp", ""),
+                })
+
+        # Filter by category if specified
+        if category:
+            facts = [f for f in facts if f.get("category") == category]
+
+        return UserFactListResponse(
+            facts=facts,
+            total=len(facts)
+        )
+
+    except Exception as e:
+        logger.warning(f"Memory Add-on retrieval failed, returning empty: {e}")
+        return UserFactListResponse(facts=[], total=0)
 
 
 @app.post("/api/memory/{character_id}/facts", response_model=UserFactResponse, tags=["memory"])
@@ -1534,20 +1562,27 @@ async def get_relationship(
     user_id: UUID = Depends(get_user_id),
     session: AsyncSession = Depends(get_session_dep),
 ):
-    """Get relationship status with a character."""
-    import traceback
-    try:
-        relationship = await memory_service.get_relationship_status(session, user_id, character_id)
-        if not relationship:
-            # Create initial relationship
-            relationship = await memory_service.get_or_create_relationship(session, user_id, character_id)
-            await session.commit()
-        logger.info(f"Relationship data: stage={relationship.stage}, inside_jokes={relationship.inside_jokes}, milestones={relationship.milestones}")
-        return RelationshipResponse.model_validate(relationship)
-    except Exception as e:
-        logger.error(f"Error in get_relationship: {e}")
-        logger.error(traceback.format_exc())
-        raise
+    """Get relationship status with a character (simplified for Memory Add-on)."""
+    # Return a default relationship for now
+    # The Memory Add-on Service stores relationship data in the knowledge graph
+    # but doesn't have a direct "relationship status" endpoint yet
+    from datetime import datetime, timezone
+    import uuid
+
+    return RelationshipResponse(
+        id=uuid.uuid4(),
+        character_id=character_id,
+        stage="acquaintance",  # Default stage
+        trust_level=50,
+        sentiment_score=0,
+        total_conversations=0,
+        total_messages=0,
+        first_conversation=None,
+        last_conversation=None,
+        inside_jokes=[],
+        milestones=[],
+        created_at=datetime.now(timezone.utc),
+    )
 
 
 @app.get("/api/memory/{character_id}/context", response_model=MemoryContextResponse, tags=["memory"])
@@ -1583,24 +1618,12 @@ async def get_diary_entries(
     user_id: UUID = Depends(get_user_id),
     session: AsyncSession = Depends(get_session_dep),
 ):
-    """Get diary entries summarizing past conversations."""
-    from sqlalchemy import and_
-    stmt = select(DiaryEntry).where(
-        and_(
-            DiaryEntry.user_id == user_id,
-            DiaryEntry.character_id == character_id,
-        )
-    )
-    if entry_type:
-        stmt = stmt.where(DiaryEntry.entry_type == entry_type)
-    stmt = stmt.order_by(DiaryEntry.entry_date.desc()).limit(limit)
-    
-    result = await session.execute(stmt)
-    entries = list(result.scalars().all())
-    
+    """Get diary entries summarizing past conversations (simplified for Memory Add-on)."""
+    # Memory Add-on doesn't have diary functionality yet
+    # Return empty list for now
     return DiaryListResponse(
-        entries=[DiaryEntryResponse.model_validate(e) for e in entries],
-        total=len(entries)
+        entries=[],
+        total=0
     )
 
 
