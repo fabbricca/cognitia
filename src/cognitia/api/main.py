@@ -275,6 +275,8 @@ async def bridge_to_orchestrator(
         })
         await text_only_mode(client_ws, user_id)
 
+    return app
+
 
 async def text_only_mode(websocket: WebSocket, user_id: str):
     """Handle text-only mode when orchestrator is unavailable."""
@@ -389,8 +391,6 @@ async def stream_ollama_response(
                             break
                     except json.JSONDecodeError:
                         continue
-
-
 # Create app instance
 app = create_app()
 
