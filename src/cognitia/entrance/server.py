@@ -666,7 +666,8 @@ async def assign_rvc_model(
 @app.post("/api/characters/{character_id}/avatar", response_model=CharacterResponse, tags=["characters"])
 async def upload_character_avatar(
     character_id: UUID,
-    avatar_file: UploadFile = File(...),
+    avatar_file: UploadFile | None = File(None),
+    file: UploadFile | None = File(None),
     user_id: UUID = Depends(get_user_id),
     session: AsyncSession = Depends(get_session_dep),
 ):
@@ -682,6 +683,13 @@ async def upload_character_avatar(
     Returns:
         Updated character information
     """
+    avatar_file = avatar_file or file
+    if avatar_file is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Missing file upload (expected form field 'file')",
+        )
+
     # Verify character ownership
     result = await session.execute(
         select(Character)
