@@ -19,6 +19,10 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from .database import User, get_session
 
 security = HTTPBearer()
 
@@ -149,6 +153,38 @@ async def get_current_user(
     return payload
 
 
-def get_user_id(payload: TokenPayload = Depends(get_current_user)) -> UUID:
-    """Dependency to get current user's UUID."""
-    return UUID(payload.sub)
+async def get_user_id(
+    payload: TokenPayload = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> UUID:
+    """Dependency to get current user's UUID.
+
+    The API service maintains its own database for characters/chats/messages.
+    Since authentication is handled by an external auth service, users may not
+    exist in the API DB yet. We upsert the user row lazily to satisfy FK
+    constraints (e.g., characters.user_id -> users.id).
+    """
+    user_id = UUID(payload.sub)
+
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is not None:
+        return user_id
+
+    email = payload.email or f"{user_id}@external-auth.local"
+    session.add(
+        User(
+            id=user_id,
+            email=email,
+            # Password is managed by the auth service; keep a non-null placeholder.
+            password_hash="external-auth",
+            email_verified=True,
+        )
+    )
+
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        # In case of a race (user inserted concurrently), proceed.
+    return user_id
