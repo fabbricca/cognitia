@@ -52,6 +52,10 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      # Graphiti/OpenAI-compatible clients
+      # Some upstream libs rely on these env vars even if a client is passed explicitly.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-ollama}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-${OLLAMA_URL:-http://host.docker.internal:11434}/v1}
       PERSONA_STORAGE_DIR: /data/personas
     volumes:
       - memory_personas:/data/personas

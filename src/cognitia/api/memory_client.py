@@ -229,6 +229,71 @@ class MemoryClient:
             logger.debug(f"Graph retrieval failed: {e}")
             return None
 
+    async def update_graph_node(
+        self,
+        user_id: UUID,
+        character_id: UUID,
+        node_id: str,
+        name: Optional[str] = None,
+        summary: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Update a graph node (name/summary). Empty string removes the property."""
+        payload: Dict[str, Any] = {}
+        if name is not None:
+            payload["name"] = name
+        if summary is not None:
+            payload["summary"] = summary
+        if not payload:
+            return None
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.patch(
+                    f"{self.base_url}/graph/{user_id}/{character_id}/nodes/{node_id}",
+                    json=payload,
+                )
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            logger.debug(f"Graph node update failed: {e}")
+            return None
+
+    async def delete_graph_node(
+        self,
+        user_id: UUID,
+        character_id: UUID,
+        node_id: str,
+    ) -> bool:
+        """Delete a graph node (DETACH DELETE)."""
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.delete(
+                    f"{self.base_url}/graph/{user_id}/{character_id}/nodes/{node_id}",
+                )
+                response.raise_for_status()
+                return True
+        except Exception as e:
+            logger.debug(f"Graph node delete failed: {e}")
+            return False
+
+    async def delete_graph_edge(
+        self,
+        user_id: UUID,
+        character_id: UUID,
+        edge_id: str,
+    ) -> bool:
+        """Delete a graph edge."""
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.delete(
+                    f"{self.base_url}/graph/{user_id}/{character_id}/edges/{edge_id}",
+                )
+                response.raise_for_status()
+                return True
+        except Exception as e:
+            logger.debug(f"Graph edge delete failed: {e}")
+            return False
+
 
 # Global memory client instance
 memory_client = MemoryClient()

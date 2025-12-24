@@ -17,6 +17,7 @@ from uuid import uuid4
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -171,6 +172,79 @@ async def get_memory_graph(
     return graph
 
 
+class GraphNodeUpdateBody(BaseModel):
+    # None = no change; empty string = remove property
+    name: str | None = None
+    summary: str | None = None
+
+
+@router.patch("/{character_id}/graph/nodes/{node_id}")
+async def update_memory_graph_node(
+    character_id: UUID,
+    node_id: str,
+    body: GraphNodeUpdateBody,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    """Update a knowledge-graph node (name/summary) for this user-character pair."""
+    result = await session.execute(
+        select(Character).where(Character.id == character_id, Character.user_id == user_id)
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found")
+
+    resp = await memory_client.update_graph_node(
+        user_id=user_id,
+        character_id=character_id,
+        node_id=node_id,
+        name=body.name,
+        summary=body.summary,
+    )
+    if not resp:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Graph node update failed")
+    return resp
+
+
+@router.delete("/{character_id}/graph/nodes/{node_id}")
+async def delete_memory_graph_node(
+    character_id: UUID,
+    node_id: str,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete a knowledge-graph node for this user-character pair."""
+    result = await session.execute(
+        select(Character).where(Character.id == character_id, Character.user_id == user_id)
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found")
+
+    ok = await memory_client.delete_graph_node(user_id=user_id, character_id=character_id, node_id=node_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Graph node delete failed")
+    return {"success": True}
+
+
+@router.delete("/{character_id}/graph/edges/{edge_id}")
+async def delete_memory_graph_edge(
+    character_id: UUID,
+    edge_id: str,
+    user_id: UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete a knowledge-graph edge for this user-character pair."""
+    result = await session.execute(
+        select(Character).where(Character.id == character_id, Character.user_id == user_id)
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found")
+
+    ok = await memory_client.delete_graph_edge(user_id=user_id, character_id=character_id, edge_id=edge_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Graph edge delete failed")
+    return {"success": True}
+
+
 @router.get("/{character_id}/context")
 async def get_memory_context_ui(
     character_id: UUID,
@@ -203,11 +277,30 @@ async def get_memory_context_ui(
             "milestones": [],
             "created_at": _now_iso(),
         }
+
+    # Prefer real memories from the GPU memory service.
+    context_string = ""
+    recent_memories: list[dict[str, Any]] = []
+    try:
+        memory_response = await memory_client.retrieve_context(
+            user_id=user_id,
+            character_id=character_id,
+            query=None,
+            limit=10,
+        )
+        if memory_response:
+            context_string = memory_response.get("context", "") or ""
+            memories = memory_response.get("memories") or []
+            if isinstance(memories, list):
+                recent_memories = memories
+    except Exception as e:
+        logger.debug(f"UI memory context retrieval failed; falling back to placeholders: {e}")
+
     return {
         "relationship": relationship,
         "facts": facts,
-        "recent_memories": [],
-        "context_string": "",
+        "recent_memories": recent_memories,
+        "context_string": context_string,
     }
 
 

@@ -16,6 +16,7 @@ async def call_ollama(
     ollama_url: str = None,
     temperature: float = 0.3,
     timeout: float = 30.0,
+    response_format: str | None = None,
 ) -> str:
     """Call Ollama API for LLM inference.
 
@@ -43,17 +44,24 @@ async def call_ollama(
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
+            payload: Dict[str, Any] = {
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": 2048,
+                },
+            }
+
+            # Ollama supports enforcing strict JSON output via `format: "json"`.
+            # Only set this when callers explicitly expect JSON.
+            if response_format is not None:
+                payload["format"] = response_format
+
             response = await client.post(
                 f"{ollama_url}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": temperature,
-                        "num_predict": 2048,
-                    },
-                },
+                json=payload,
             )
             response.raise_for_status()
             data = response.json()
@@ -76,27 +84,16 @@ def extract_json_from_response(text: str) -> Optional[Dict[str, Any]]:
     Returns:
         Parsed JSON dict or None if parsing fails
     """
-    # Try to find JSON in markdown code blocks first
-    code_block_pattern = r"```(?:json)?\s*(\{.*?\})\s*```"
-    match = re.search(code_block_pattern, text, re.DOTALL)
-
-    if match:
-        json_text = match.group(1)
-    else:
-        # Try to find raw JSON object
-        json_pattern = r"\{.*\}"
-        match = re.search(json_pattern, text, re.DOTALL)
-        if match:
-            json_text = match.group(0)
-        else:
-            logger.warning(f"No JSON found in response: {text[:200]}")
-            return None
-
-    try:
-        return json.loads(json_text)
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse JSON: {e}\nText: {json_text[:200]}")
+    json_text = _extract_json_like(text, want="object")
+    if json_text is None:
+        logger.warning(f"No JSON found in response: {text[:200]}")
         return None
+
+    parsed = _parse_json_relaxed(json_text)
+    if isinstance(parsed, dict):
+        return parsed
+    logger.error(f"Failed to parse JSON object from text: {json_text[:300]}")
+    return None
 
 
 def extract_json_array_from_response(text: str) -> Optional[list]:
@@ -108,24 +105,98 @@ def extract_json_array_from_response(text: str) -> Optional[list]:
     Returns:
         Parsed JSON array or None if parsing fails
     """
-    # Try to find JSON array in markdown code blocks first
-    code_block_pattern = r"```(?:json)?\s*(\[.*?\])\s*```"
-    match = re.search(code_block_pattern, text, re.DOTALL)
+    json_text = _extract_json_like(text, want="array")
+    if json_text is None:
+        logger.warning(f"No JSON array found in response: {text[:200]}")
+        return None
 
-    if match:
-        json_text = match.group(1)
-    else:
-        # Try to find raw JSON array
-        json_pattern = r"\[.*\]"
-        match = re.search(json_pattern, text, re.DOTALL)
-        if match:
-            json_text = match.group(0)
-        else:
-            logger.warning(f"No JSON array found in response: {text[:200]}")
-            return None
+    parsed = _parse_json_relaxed(json_text)
+    if isinstance(parsed, list):
+        return parsed
+    logger.error(f"Failed to parse JSON array from text: {json_text[:300]}")
+    return None
 
+
+def _extract_json_like(text: str, *, want: str) -> Optional[str]:
+    """Extract a JSON object/array string from an LLM response.
+
+    The response may include markdown code fences or additional prose.
+    This function attempts to extract the first balanced JSON object/array.
+    """
+    if want not in {"object", "array"}:
+        raise ValueError("want must be 'object' or 'array'")
+
+    fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
+    candidate_source = fence_match.group(1) if fence_match else text
+
+    open_char = "{" if want == "object" else "["
+    close_char = "}" if want == "object" else "]"
+    return _find_balanced(candidate_source, open_char=open_char, close_char=close_char)
+
+
+def _find_balanced(text: str, *, open_char: str, close_char: str) -> Optional[str]:
+    """Return the first balanced {...} or [...] substring, respecting quoted strings."""
+    start = text.find(open_char)
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escape = False
+    for idx in range(start, len(text)):
+        ch = text[idx]
+
+        if in_string:
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == open_char:
+            depth += 1
+            continue
+        if ch == close_char:
+            depth -= 1
+            if depth == 0:
+                return text[start : idx + 1]
+            continue
+
+    return None
+
+
+def _parse_json_relaxed(json_text: str) -> Any:
+    """Parse JSON with small, safe repairs for common LLM issues.
+
+    Repairs include:
+    - stripping JS-style comments
+    - removing trailing commas before } or ]
+    """
     try:
         return json.loads(json_text)
+    except json.JSONDecodeError:
+        pass
+
+    repaired = json_text
+    # Remove /* ... */ block comments
+    repaired = re.sub(r"/\*.*?\*/", "", repaired, flags=re.DOTALL)
+    # Remove // line comments
+    repaired = re.sub(r"(^|\s)//.*?$", r"\1", repaired, flags=re.MULTILINE)
+    # Remove trailing commas
+    prev = None
+    while prev != repaired:
+        prev = repaired
+        repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+
+    try:
+        return json.loads(repaired)
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse JSON array: {e}\nText: {json_text[:200]}")
+        logger.error(f"Failed to parse JSON after repair: {e}\nText: {repaired[:300]}")
         return None

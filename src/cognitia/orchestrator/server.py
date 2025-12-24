@@ -111,10 +111,46 @@ async def _ollama_token_stream(*, system_prompt: str, history: list[dict[str, An
     ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
     ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 
+    def _get_int(name: str, default: int) -> int:
+        raw = os.getenv(name)
+        if raw is None or raw == "":
+            return default
+        try:
+            return int(raw)
+        except Exception:
+            return default
+
+    def _get_float(name: str, default: float) -> float:
+        raw = os.getenv(name)
+        if raw is None or raw == "":
+            return default
+        try:
+            return float(raw)
+        except Exception:
+            return default
+
+    # Default sampling tuned to reduce repetition while keeping responses natural.
+    # Can be overridden via env vars.
+    options: dict[str, Any] = {
+        "temperature": _get_float("OLLAMA_TEMPERATURE", 0.7),
+        "top_p": _get_float("OLLAMA_TOP_P", 0.9),
+        "top_k": _get_int("OLLAMA_TOP_K", 40),
+        "repeat_penalty": _get_float("OLLAMA_REPEAT_PENALTY", 1.15),
+        "repeat_last_n": _get_int("OLLAMA_REPEAT_LAST_N", 128),
+    }
+
+    num_ctx_raw = os.getenv("OLLAMA_NUM_CTX")
+    if num_ctx_raw:
+        try:
+            options["num_ctx"] = int(num_ctx_raw)
+        except Exception:
+            pass
+
     payload = {
         "model": ollama_model,
         "messages": [{"role": "system", "content": system_prompt}] + history,
         "stream": True,
+        "options": options,
     }
 
     async with httpx.AsyncClient(timeout=None) as client:

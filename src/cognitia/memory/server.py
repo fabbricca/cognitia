@@ -13,6 +13,8 @@ from .models import (
     DistillRequest,
     DistillResponse,
     GraphResponse,
+    GraphNodeUpdateRequest,
+    GraphMutationResponse,
     HealthResponse,
     IngestRequest,
     IngestResponse,
@@ -227,6 +229,7 @@ Return ONLY valid JSON:'''
                 ollama_url=settings.OLLAMA_URL,
                 temperature=0.3,
                 timeout=15.0,
+                response_format="json",
             )
             extraction = extract_json_from_response(response_text)
         except Exception as e:
@@ -348,16 +351,24 @@ async def retrieve_memory(request: RetrieveRequest):
         # 1. Query Qdrant for relevant episodes
         if qdrant_client:
             try:
-                # If query is empty, use a generic query to retrieve recent episodes
-                query_text = request.query if request.query else "recent conversation history"
-
-                episodes = await qdrant_client.search_episodes(
-                    user_id=str(request.user_id),
-                    character_id=str(request.character_id),
-                    query=query_text,
-                    limit=request.limit or 5,
-                    min_salience=0.3,
-                )
+                limit = request.limit or 5
+                if request.query and request.query.strip():
+                    episodes = await qdrant_client.search_episodes(
+                        user_id=str(request.user_id),
+                        character_id=str(request.character_id),
+                        query=request.query,
+                        limit=limit,
+                        min_salience=0.3,
+                    )
+                else:
+                    # Query-less context: show recent conversation history instead of doing
+                    # a semantic search on a placeholder string.
+                    episodes = await qdrant_client.get_recent_episodes(
+                        user_id=str(request.user_id),
+                        character_id=str(request.character_id),
+                        limit=limit,
+                        min_salience=0.0,
+                    )
 
                 for episode in episodes:
                     memories.append({
@@ -369,11 +380,18 @@ async def retrieve_memory(request: RetrieveRequest):
                     })
 
                 if episodes:
-                    context_parts.append("## Recent Relevant Conversations")
+                    header = (
+                        "## Recent Relevant Conversations"
+                        if (request.query and request.query.strip())
+                        else "## Recent Conversation History"
+                    )
+                    context_parts.append(header)
                     for i, episode in enumerate(episodes[:3], 1):
+                        snippet = episode["user_message"][:100]
+                        suffix = "..." if len(episode["user_message"]) > 100 else ""
                         context_parts.append(
                             f"{i}. [{episode['timestamp'].strftime('%Y-%m-%d')}] "
-                            f"User said: \"{episode['user_message'][:100]}...\""
+                            f"User said: \"{snippet}{suffix}\""
                         )
 
                 logger.info(f"Qdrant: Retrieved {len(episodes)} relevant episodes")
@@ -580,6 +598,41 @@ async def get_graph(user_id: str, character_id: str, limit_nodes: int = 200, lim
 
         nodes = record.get("nodes", []) if record else []
         edges = record.get("edges", []) if record else []
+
+        def _neo4j_jsonable(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {k: _neo4j_jsonable(v) for k, v in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [_neo4j_jsonable(v) for v in value]
+
+            # Neo4j temporal types are not JSON-serializable by Pydantic.
+            try:
+                import neo4j
+
+                temporal_types = (
+                    getattr(neo4j.time, "DateTime", object),
+                    getattr(neo4j.time, "Date", object),
+                    getattr(neo4j.time, "Time", object),
+                    getattr(neo4j.time, "Duration", object),
+                )
+                if isinstance(value, temporal_types):
+                    try:
+                        native = value.to_native()
+                        return native.isoformat() if hasattr(native, "isoformat") else str(native)
+                    except Exception:
+                        return str(value)
+            except Exception:
+                pass
+
+            if hasattr(value, "isoformat"):
+                try:
+                    return value.isoformat()
+                except Exception:
+                    return str(value)
+            return value
+
+        nodes = _neo4j_jsonable(nodes)
+        edges = _neo4j_jsonable(edges)
         return GraphResponse(
             available=True,
             group_id=group_id,
@@ -594,6 +647,144 @@ async def get_graph(user_id: str, character_id: str, limit_nodes: int = 200, lim
             nodes=[],
             edges=[],
         )
+
+
+def _group_predicate(node_alias: str = "n") -> str:
+    return (
+        f"({node_alias}.group_id = $group_id "
+        f"OR {node_alias}.groupId = $group_id "
+        f"OR $group_id IN coalesce({node_alias}.group_ids, []) "
+        f"OR $group_id IN coalesce({node_alias}.groupIds, []))"
+    )
+
+
+@app.patch(
+    "/graph/{user_id}/{character_id}/nodes/{node_id}",
+    response_model=GraphMutationResponse,
+)
+async def update_graph_node(user_id: str, character_id: str, node_id: str, request: GraphNodeUpdateRequest):
+    """Update a graph node's user-facing fields (name/summary).
+
+    Scoped to the user-character group_id. Empty string removes the property.
+    """
+    group_id = f"{user_id}_{character_id}"
+
+    if neo4j_driver is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Neo4j not available")
+
+    changes: list[str] = []
+    params: dict[str, Any] = {"group_id": group_id, "node_id": node_id}
+
+    if request.name is not None:
+        if request.name == "":
+            changes.append("REMOVE n.name")
+        else:
+            changes.append("SET n.name = $name")
+            params["name"] = request.name
+
+    if request.summary is not None:
+        if request.summary == "":
+            changes.append("REMOVE n.summary")
+        else:
+            changes.append("SET n.summary = $summary")
+            params["summary"] = request.summary
+
+    if not changes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No changes requested")
+
+    cypher = f"""
+    MATCH (n)
+    WHERE elementId(n) = $node_id AND {_group_predicate('n')}
+    WITH n
+    {'\n    '.join(changes)}
+    RETURN {{id: elementId(n), labels: labels(n), properties: properties(n)}} AS node
+    """
+
+    try:
+        async with neo4j_driver.session() as session:
+            result = await session.run(cypher, **params)
+            record = await result.single()
+
+        node = record.get("node") if record else None
+        if not node:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Node not found")
+
+        return GraphMutationResponse(success=True, node=node)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Graph node update failed: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Graph node update failed")
+
+
+@app.delete(
+    "/graph/{user_id}/{character_id}/nodes/{node_id}",
+    response_model=GraphMutationResponse,
+)
+async def delete_graph_node(user_id: str, character_id: str, node_id: str):
+    """Delete a node (and attached relationships) from the graph for this group."""
+    group_id = f"{user_id}_{character_id}"
+
+    if neo4j_driver is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Neo4j not available")
+
+    cypher = f"""
+    MATCH (n)
+    WHERE elementId(n) = $node_id AND {_group_predicate('n')}
+    DETACH DELETE n
+    RETURN 1 AS deleted
+    """
+
+    try:
+        async with neo4j_driver.session() as session:
+            result = await session.run(cypher, group_id=group_id, node_id=node_id)
+            record = await result.single()
+
+        deleted = int(record.get("deleted", 0)) if record else 0
+        if deleted == 0:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Node not found")
+        return GraphMutationResponse(success=True, deleted=deleted)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Graph node delete failed: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Graph node delete failed")
+
+
+@app.delete(
+    "/graph/{user_id}/{character_id}/edges/{edge_id}",
+    response_model=GraphMutationResponse,
+)
+async def delete_graph_edge(user_id: str, character_id: str, edge_id: str):
+    """Delete an edge from the graph for this group."""
+    group_id = f"{user_id}_{character_id}"
+
+    if neo4j_driver is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Neo4j not available")
+
+    cypher = f"""
+    MATCH (a)-[r]-(b)
+    WHERE elementId(r) = $edge_id
+      AND {_group_predicate('a')}
+      AND {_group_predicate('b')}
+    DELETE r
+    RETURN 1 AS deleted
+    """
+
+    try:
+        async with neo4j_driver.session() as session:
+            result = await session.run(cypher, group_id=group_id, edge_id=edge_id)
+            record = await result.single()
+
+        deleted = int(record.get("deleted", 0)) if record else 0
+        if deleted == 0:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Edge not found")
+        return GraphMutationResponse(success=True, deleted=deleted)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Graph edge delete failed: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Graph edge delete failed")
 
 
 @app.post("/distill", response_model=DistillResponse)

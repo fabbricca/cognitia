@@ -108,6 +108,22 @@ class GraphResponse(BaseModel):
     edges: List[GraphEdge] = Field(default_factory=list)
 
 
+class GraphNodeUpdateRequest(BaseModel):
+    """Allowed user edits for a graph node."""
+
+    # None = no change; empty string = remove property
+    name: Optional[str] = Field(None, description="New node name; empty string removes it")
+    summary: Optional[str] = Field(None, description="New node summary; empty string removes it")
+
+
+class GraphMutationResponse(BaseModel):
+    """Response for graph mutations (update/delete)."""
+
+    success: bool = Field(..., description="Whether the mutation succeeded")
+    deleted: int = Field(0, description="Number of elements deleted")
+    node: Optional[GraphNode] = Field(None, description="Updated node, if applicable")
+
+
 class DistillRequest(BaseModel):
     """Request model for persona distillation."""
 

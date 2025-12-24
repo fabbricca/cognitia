@@ -368,6 +368,7 @@ JSON array:"""
                 model=settings.OLLAMA_MODEL,
                 ollama_url=settings.OLLAMA_URL,
                 temperature=0.3,
+                response_format="json",
             )
 
             entities = extract_json_array_from_response(response)
@@ -443,6 +444,7 @@ JSON array:"""
                 model=settings.OLLAMA_MODEL,
                 ollama_url=settings.OLLAMA_URL,
                 temperature=0.3,
+                response_format="json",
             )
 
             relationships = extract_json_array_from_response(response)

@@ -262,6 +262,7 @@ JSON response:"""
                 model=settings.OLLAMA_MODEL,
                 ollama_url=settings.OLLAMA_URL,
                 temperature=0.4,  # Slightly higher for creative synthesis
+                response_format="json",
             )
 
             # Parse JSON response

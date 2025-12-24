@@ -228,6 +228,92 @@ class QdrantMemoryClient:
             logger.error(f"Episode search failed: {e}")
             raise
 
+    async def get_recent_episodes(
+        self,
+        user_id: str,
+        character_id: str,
+        limit: int = 10,
+        min_salience: float = 0.0,
+        max_scan: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """Fetch the most recent episodes for a user/character pair.
+
+        Qdrant's semantic search requires a query vector; for query-less context
+        (e.g. UI displaying recent conversation), we instead scroll filtered
+        points and sort by timestamp.
+        """
+        logger.info(
+            f"Fetching recent episodes for user={user_id}, character={character_id}, limit={limit}"
+        )
+
+        try:
+            from datetime import timezone
+            from qdrant_client.models import Filter, FieldCondition, Range, MatchValue
+
+            limit = max(1, min(200, int(limit)))
+            max_scan = max(limit, min(5000, int(max_scan)))
+
+            points: List[Any] = []
+            next_offset = None
+            while len(points) < max_scan:
+                batch, next_offset = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+                            FieldCondition(
+                                key="character_id", match=MatchValue(value=character_id)
+                            ),
+                            FieldCondition(
+                                key="salience_score", range=Range(gte=min_salience)
+                            ),
+                        ]
+                    ),
+                    with_payload=True,
+                    with_vectors=False,
+                    limit=min(256, max_scan - len(points)),
+                    offset=next_offset,
+                )
+                points.extend(batch)
+                if next_offset is None:
+                    break
+
+            def _parse_timestamp(ts: str) -> datetime:
+                parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed
+
+            episodes: List[Dict[str, Any]] = []
+            for point in points:
+                payload = point.payload or {}
+                timestamp_str = payload.get("timestamp")
+                if not timestamp_str:
+                    continue
+
+                timestamp = _parse_timestamp(timestamp_str)
+                episodes.append(
+                    {
+                        "episode_id": str(point.id),
+                        "score": 1.0,  # query-less; callers can treat as recency-only
+                        "user_message": payload.get("user_message", ""),
+                        "assistant_response": payload.get("assistant_response", ""),
+                        "timestamp": timestamp,
+                        "emotional_tone": payload.get("emotional_tone", "neutral"),
+                        "salience_score": payload.get("salience_score", 0.0),
+                    }
+                )
+
+            episodes.sort(key=lambda e: e["timestamp"], reverse=True)
+            # Make scores monotonic by recency for nicer downstream ordering
+            for i, episode in enumerate(episodes[:limit]):
+                episode["score"] = 1.0 - (i / max(1, limit))
+            return episodes[:limit]
+
+        except Exception as e:
+            logger.error(f"Recent episodes fetch failed: {e}")
+            raise
+
     async def delete_old_episodes(self, older_than_days: int, min_salience: float = 0.3) -> int:
         """Delete low-salience episodes older than specified days.
 
