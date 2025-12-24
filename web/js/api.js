@@ -616,6 +616,34 @@ export class ApiClient {
     async getMemoryGraph(characterId) {
         return this.request('GET', `/api/memory/${characterId}/graph`);
     }
+
+    /**
+     * Update a memory-graph node.
+     * @param {string} characterId
+     * @param {string} nodeId
+     * @param {{name?: string|null, summary?: string|null}} body
+     */
+    async updateMemoryGraphNode(characterId, nodeId, body) {
+        return this.request('PATCH', `/api/memory/${characterId}/graph/nodes/${encodeURIComponent(nodeId)}`, body);
+    }
+
+    /**
+     * Delete a memory-graph node.
+     * @param {string} characterId
+     * @param {string} nodeId
+     */
+    async deleteMemoryGraphNode(characterId, nodeId) {
+        return this.request('DELETE', `/api/memory/${characterId}/graph/nodes/${encodeURIComponent(nodeId)}`);
+    }
+
+    /**
+     * Delete a memory-graph edge.
+     * @param {string} characterId
+     * @param {string} edgeId
+     */
+    async deleteMemoryGraphEdge(characterId, edgeId) {
+        return this.request('DELETE', `/api/memory/${characterId}/graph/edges/${encodeURIComponent(edgeId)}`);
+    }
 }
 
 // Singleton instance

@@ -195,8 +195,9 @@ class CognitiaApp {
             // Graph tab
             graphSearch: document.getElementById('graph-search'),
             graphRefreshBtn: document.getElementById('graph-refresh-btn'),
-            graphNodesList: document.getElementById('graph-nodes-list'),
-            graphEdgesList: document.getElementById('graph-edges-list'),
+            graphCanvasWrap: document.getElementById('graph-canvas-wrap'),
+            graphCanvas: document.getElementById('graph-canvas'),
+            graphOverlay: document.getElementById('graph-overlay'),
             graphDetails: document.getElementById('graph-details'),
             // Relationship tab
             relStage: document.getElementById('rel-stage'),
@@ -453,7 +454,7 @@ class CognitiaApp {
         });
 
         this.elements.graphSearch?.addEventListener('input', () => {
-            this.renderGraphNodes();
+            this.updateGraphSearch();
         });
         
         // Relationship edit
@@ -1201,6 +1202,7 @@ class CognitiaApp {
 
             const decoder = new TextDecoder('utf-8');
             let buffer = '';
+            const assistantParts = [];
 
             while (true) {
                 const { value, done } = await reader.read();
@@ -1223,16 +1225,24 @@ class CognitiaApp {
                         if (sentence && sentence.trim()) {
                             this.hideTypingIndicator();
                             this.appendMessage('assistant', sentence);
-                            if (this.currentChat) {
-                                api.createMessage(this.currentChat.id, sentence, 'assistant').catch(console.error);
-                            }
-                            this.messages.push({ role: 'assistant', content: sentence });
+                            assistantParts.push(sentence);
                         }
                     } else if (event === 'error') {
                         this.hideTypingIndicator();
                         throw new Error(data?.message || 'stream failed');
                     } else if (event === 'done') {
                         this.hideTypingIndicator();
+                        // Persist the assistant response as a single message.
+                        // This avoids fragmenting chat history (one DB row per sentence),
+                        // which can lead to repetitive behavior on subsequent turns.
+                        const fullAssistantText = assistantParts.join(' ').replace(/\s+/g, ' ').trim();
+                        if (fullAssistantText && this.currentChat) {
+                            api.createMessage(this.currentChat.id, fullAssistantText, 'assistant')
+                                .then(() => {
+                                    this.messages.push({ role: 'assistant', content: fullAssistantText });
+                                })
+                                .catch(console.error);
+                        }
                         break;
                     }
                 }
@@ -2413,6 +2423,7 @@ class CognitiaApp {
     
     hideMemoryModal() {
         this.elements.memoryModal?.classList.remove('active');
+        this.stopGraphRenderer();
     }
     
     switchMemoryTab(tabName) {
@@ -2432,9 +2443,11 @@ class CognitiaApp {
                 this.loadGraph();
                 break;
             case 'facts':
+                this.stopGraphRenderer();
                 this.loadFacts();
                 break;
             case 'memories':
+                this.stopGraphRenderer();
                 this.loadMemories();
                 break;
         }
@@ -2444,16 +2457,13 @@ class CognitiaApp {
     async loadGraph() {
         if (!this.currentCharacter) return;
 
-        const nodesContainer = this.elements.graphNodesList;
-        const edgesContainer = this.elements.graphEdgesList;
+        const overlay = this.elements.graphOverlay;
         const detailsContainer = this.elements.graphDetails;
 
         try {
-            if (nodesContainer) {
-                nodesContainer.innerHTML = '<p class="empty-message">Loading graph…</p>';
-            }
-            if (edgesContainer) {
-                edgesContainer.innerHTML = '<p class="empty-message">Loading…</p>';
+            if (overlay) {
+                overlay.style.display = 'flex';
+                overlay.innerHTML = '<p class="empty-message">Loading graph…</p>';
             }
             if (detailsContainer) {
                 detailsContainer.innerHTML = '<p class="empty-message">Select a node or edge</p>';
@@ -2464,19 +2474,57 @@ class CognitiaApp {
             this._selectedGraphNodeId = null;
             this._selectedGraphEdgeId = null;
 
-            this.renderGraphNodes();
-            this.renderGraphEdges();
+            this.ensureGraphRenderer();
+            this._graphRenderer?.setGraph(this._graphCache);
+            this.updateGraphSearch();
+            this.startGraphRenderer();
+
+            if (overlay) {
+                if (!this._graphCache.available) {
+                    overlay.style.display = 'flex';
+                    overlay.innerHTML = '<p class="empty-message">Graph not available (Graphiti/Neo4j not connected)</p>';
+                } else if ((this._graphCache.nodes || []).length === 0) {
+                    overlay.style.display = 'flex';
+                    overlay.innerHTML = '<p class="empty-message">No graph data yet</p>';
+                } else {
+                    overlay.style.display = 'none';
+                }
+            }
         } catch (error) {
             console.error('Failed to load graph:', error);
             this._graphCache = { available: false, nodes: [], edges: [], group_id: null };
-            if (nodesContainer) {
-                nodesContainer.innerHTML = '<p class="empty-message">Graph unavailable</p>';
+            if (overlay) {
+                overlay.style.display = 'flex';
+                overlay.innerHTML = '<p class="empty-message">Graph unavailable</p>';
             }
-            if (edgesContainer) {
-                edgesContainer.innerHTML = '<p class="empty-message">Graph unavailable</p>';
-            }
+            this.stopGraphRenderer();
             this.showToast('Failed to load graph', 'error');
         }
+    }
+
+    _filterGraphProperties(props) {
+        const blocked = new Set([
+            'embedding',
+            'embeddings',
+            'vector',
+            'uuid',
+            'group_id',
+            'groupId',
+            'group_ids',
+            'groupIds',
+            'id',
+        ]);
+
+        const out = {};
+        for (const [k, v] of Object.entries(props || {})) {
+            const key = String(k);
+            const lower = key.toLowerCase();
+            if (blocked.has(key) || blocked.has(lower)) continue;
+            if (lower.includes('embedding')) continue;
+            if (lower.includes('vector')) continue;
+            out[key] = v;
+        }
+        return out;
     }
 
     getGraphNodeLabel(node) {
@@ -2490,97 +2538,84 @@ class CognitiaApp {
         );
     }
 
-    renderGraphNodes() {
-        const container = this.elements.graphNodesList;
-        if (!container) return;
-
-        const graph = this._graphCache || { available: false, nodes: [], edges: [] };
-        if (!graph.available) {
-            container.innerHTML = '<p class="empty-message">Graph not available (Graphiti/Neo4j not connected)</p>';
-            return;
-        }
-
+    updateGraphSearch() {
         const query = (this.elements.graphSearch?.value || '').trim().toLowerCase();
-        const nodes = (graph.nodes || []).slice();
-
-        const filtered = query
-            ? nodes.filter(n => {
-                const label = this.getGraphNodeLabel(n).toLowerCase();
-                const labels = (n.labels || []).join(' ').toLowerCase();
-                return label.includes(query) || labels.includes(query);
-            })
-            : nodes;
-
-        if (filtered.length === 0) {
-            container.innerHTML = '<p class="empty-message">No nodes</p>';
-            return;
-        }
-
-        container.innerHTML = filtered
-            .sort((a, b) => this.getGraphNodeLabel(a).localeCompare(this.getGraphNodeLabel(b)))
-            .map(n => {
-                const selected = this._selectedGraphNodeId === n.id ? 'selected' : '';
-                const labels = (n.labels || []).slice(0, 3).join(', ');
-                return `
-                    <div class="graph-item ${selected}" onclick="app.selectGraphNode('${n.id}')">
-                        <div class="graph-item-title">${this.escapeHtml(this.getGraphNodeLabel(n))}</div>
-                        <div class="graph-item-subtitle">${this.escapeHtml(labels || 'node')}</div>
-                    </div>
-                `;
-            })
-            .join('');
+        this._graphRenderer?.setSearchQuery(query);
     }
 
-    renderGraphEdges() {
-        const container = this.elements.graphEdgesList;
-        if (!container) return;
+    ensureGraphRenderer() {
+        if (this._graphRenderer) return;
+        const canvas = this.elements.graphCanvas;
+        const wrap = this.elements.graphCanvasWrap;
+        if (!canvas || !wrap) return;
 
-        const graph = this._graphCache || { available: false, nodes: [], edges: [] };
-        if (!graph.available) {
-            container.innerHTML = '<p class="empty-message">Graph not available</p>';
-            return;
-        }
+        this._graphRenderer = new MemoryGraphRenderer({
+            canvas,
+            wrap,
+            getNodeLabel: (n) => this.getGraphNodeLabel(n),
+            onSelect: (sel) => {
+                if (!sel) return;
+                if (sel.kind === 'node') this.selectGraphNode(sel.id);
+                if (sel.kind === 'edge') this.selectGraphEdge(sel.id);
+            },
+            getTheme: () => this.getGraphTheme(),
+        });
+    }
 
-        const edges = graph.edges || [];
-        if (!this._selectedGraphNodeId) {
-            container.innerHTML = '<p class="empty-message">Select a node to see connections</p>';
-            return;
-        }
+    startGraphRenderer() {
+        this._graphRenderer?.start();
+    }
 
-        const nodeMap = (graph.nodes || []).reduce((acc, n) => { acc[n.id] = n; return acc; }, {});
-        const connected = edges.filter(e => e.source === this._selectedGraphNodeId || e.target === this._selectedGraphNodeId);
+    stopGraphRenderer() {
+        this._graphRenderer?.stop();
+    }
 
-        if (connected.length === 0) {
-            container.innerHTML = '<p class="empty-message">No edges for this node</p>';
-            return;
-        }
+    getGraphTheme() {
+        const root = document.documentElement;
+        const cs = getComputedStyle(root);
+        const accent = cs.getPropertyValue('--accent').trim();
+        const accentRgb = cs.getPropertyValue('--accent-rgb').trim();
+        const borderVar = cs.getPropertyValue('--border-color').trim();
+        const textPrimaryVar = cs.getPropertyValue('--text-primary').trim();
+        const textSecondaryVar = cs.getPropertyValue('--text-secondary').trim();
+        const bgPrimaryVar = cs.getPropertyValue('--bg-primary').trim();
+        const bgSecondaryVar = cs.getPropertyValue('--bg-secondary').trim();
 
-        container.innerHTML = connected.map(e => {
-            const selected = this._selectedGraphEdgeId === e.id ? 'selected' : '';
-            const otherId = e.source === this._selectedGraphNodeId ? e.target : e.source;
-            const otherNode = nodeMap[otherId];
-            const otherLabel = otherNode ? this.getGraphNodeLabel(otherNode) : otherId;
-            return `
-                <div class="graph-item ${selected}" onclick="app.selectGraphEdge('${e.id}')">
-                    <div class="graph-item-title">${this.escapeHtml(e.type || 'RELATED_TO')}</div>
-                    <div class="graph-item-subtitle">${this.escapeHtml(otherLabel)}</div>
-                </div>
-            `;
-        }).join('');
+        const wrap = this.elements.graphCanvasWrap;
+        const wrapStyle = wrap ? getComputedStyle(wrap) : null;
+        const bodyStyle = getComputedStyle(document.body);
+
+        const bg = bgPrimaryVar || wrapStyle?.backgroundColor || bodyStyle.backgroundColor;
+        const panel = bgSecondaryVar || wrapStyle?.backgroundColor || bg;
+        const border = borderVar || wrapStyle?.borderColor || bodyStyle.borderColor;
+        const text = textPrimaryVar || bodyStyle.color;
+        const textMuted = textSecondaryVar || text;
+
+        const rgbToRgba = (rgb, a) => {
+            const s = (rgb || '').trim();
+            if (s.startsWith('rgb(')) return s.replace('rgb(', 'rgba(').replace(')', `, ${a})`);
+            if (s.startsWith('rgba(')) return s;
+            return s;
+        };
+
+        const accentStroke = accent || (accentRgb ? `rgb(${accentRgb})` : text);
+        const accentFill = accentRgb ? `rgba(${accentRgb}, 0.18)` : rgbToRgba(accentStroke, 0.18);
+
+        return { bg, panel, border, text, textMuted, accent: accentStroke, accentFill };
     }
 
     selectGraphNode(nodeId) {
         this._selectedGraphNodeId = nodeId;
         this._selectedGraphEdgeId = null;
 
-        this.renderGraphNodes();
-        this.renderGraphEdges();
+        this._graphRenderer?.setSelection({ nodeId, edgeId: null });
         this.showGraphDetails({ kind: 'node', id: nodeId });
     }
 
     selectGraphEdge(edgeId) {
         this._selectedGraphEdgeId = edgeId;
-        this.renderGraphEdges();
+
+        this._graphRenderer?.setSelection({ nodeId: this._selectedGraphNodeId, edgeId });
         this.showGraphDetails({ kind: 'edge', id: edgeId });
     }
 
@@ -2605,7 +2640,21 @@ class CognitiaApp {
             }
 
             const props = node.properties || {};
-            const rows = Object.entries(props)
+            const filteredProps = this._filterGraphProperties(props);
+
+            const nameValue = (
+                props.name ||
+                props.title ||
+                props.label ||
+                ''
+            );
+            const summaryValue = (
+                props.summary ||
+                props.description ||
+                ''
+            );
+
+            const rows = Object.entries(filteredProps)
                 .slice(0, 40)
                 .map(([k, v]) => `
                     <div class="graph-k">${this.escapeHtml(String(k))}</div>
@@ -2617,6 +2666,18 @@ class CognitiaApp {
                 <div class="graph-item-title">${this.escapeHtml(this.getGraphNodeLabel(node))}</div>
                 <div class="graph-item-subtitle">${this.escapeHtml((node.labels || []).join(', ') || 'node')}</div>
                 <div style="height: 12px"></div>
+                <div class="form-group">
+                    <label class="form-label">Name</label>
+                    <input class="form-input" id="graph-edit-name" value="${this.escapeHtml(String(nameValue))}" placeholder="(empty removes name)">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Summary</label>
+                    <textarea class="form-input" id="graph-edit-summary" rows="4" placeholder="(empty removes summary)">${this.escapeHtml(String(summaryValue))}</textarea>
+                </div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin: 12px 0 16px;">
+                    <button class="btn btn-primary btn-sm" onclick="app.saveGraphNodeEdits('${node.id}')">Save</button>
+                    <button class="btn btn-danger btn-sm" onclick="app.deleteGraphNode('${node.id}')">Delete Node</button>
+                </div>
                 <div class="graph-kv">${rows || '<div class="graph-k">(no properties)</div><div class="graph-v"></div>'}</div>
             `;
             return;
@@ -2635,7 +2696,8 @@ class CognitiaApp {
             const toLabel = toNode ? this.getGraphNodeLabel(toNode) : edge.target;
 
             const props = edge.properties || {};
-            const rows = Object.entries(props)
+            const filteredProps = this._filterGraphProperties(props);
+            const rows = Object.entries(filteredProps)
                 .slice(0, 40)
                 .map(([k, v]) => `
                     <div class="graph-k">${this.escapeHtml(String(k))}</div>
@@ -2647,8 +2709,58 @@ class CognitiaApp {
                 <div class="graph-item-title">${this.escapeHtml(edge.type || 'RELATIONSHIP')}</div>
                 <div class="graph-item-subtitle">${this.escapeHtml(fromLabel)} → ${this.escapeHtml(toLabel)}</div>
                 <div style="height: 12px"></div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin: 0 0 16px;">
+                    <button class="btn btn-danger btn-sm" onclick="app.deleteGraphEdge('${edge.id}')">Delete Edge</button>
+                </div>
                 <div class="graph-kv">${rows || '<div class="graph-k">(no properties)</div><div class="graph-v"></div>'}</div>
             `;
+        }
+    }
+
+    async saveGraphNodeEdits(nodeId) {
+        if (!this.currentCharacter) return;
+        const nameEl = document.getElementById('graph-edit-name');
+        const summaryEl = document.getElementById('graph-edit-summary');
+        const name = nameEl ? nameEl.value : null;
+        const summary = summaryEl ? summaryEl.value : null;
+
+        try {
+            await api.updateMemoryGraphNode(this.currentCharacter.id, nodeId, {
+                name: name === null ? null : String(name),
+                summary: summary === null ? null : String(summary),
+            });
+            this.showToast('Saved', 'success');
+            await this.loadGraph();
+            this.selectGraphNode(nodeId);
+        } catch (e) {
+            console.error('Failed to save graph node:', e);
+            this.showToast('Failed to save node', 'error');
+        }
+    }
+
+    async deleteGraphNode(nodeId) {
+        if (!this.currentCharacter) return;
+        if (!confirm('Delete this node and all its edges?')) return;
+        try {
+            await api.deleteMemoryGraphNode(this.currentCharacter.id, nodeId);
+            this.showToast('Node deleted', 'success');
+            await this.loadGraph();
+        } catch (e) {
+            console.error('Failed to delete graph node:', e);
+            this.showToast('Failed to delete node', 'error');
+        }
+    }
+
+    async deleteGraphEdge(edgeId) {
+        if (!this.currentCharacter) return;
+        if (!confirm('Delete this edge?')) return;
+        try {
+            await api.deleteMemoryGraphEdge(this.currentCharacter.id, edgeId);
+            this.showToast('Edge deleted', 'success');
+            await this.loadGraph();
+        } catch (e) {
+            console.error('Failed to delete graph edge:', e);
+            this.showToast('Failed to delete edge', 'error');
         }
     }
     
@@ -3206,6 +3318,479 @@ class CognitiaApp {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+}
+
+class MemoryGraphRenderer {
+    constructor({ canvas, wrap, getNodeLabel, onSelect, getTheme }) {
+        this.canvas = canvas;
+        this.wrap = wrap;
+        this.ctx = canvas.getContext('2d');
+        this.getNodeLabel = getNodeLabel;
+        this.onSelect = onSelect;
+        this.getTheme = getTheme;
+
+        this._running = false;
+        this._raf = null;
+        this._nodes = [];
+        this._edges = [];
+        this._nodeById = new Map();
+        this._edgeById = new Map();
+        this._graphAvailable = false;
+        this._alpha = 0;
+        this._searchQuery = '';
+        this._selectedNodeId = null;
+        this._selectedEdgeId = null;
+        this._dirty = true;
+        this._attached = false;
+
+        this._view = { tx: 0, ty: 0, scale: 1 };
+        this._drag = null;
+
+        this._onResize = () => {
+            this.resize();
+            this._dirty = true;
+        };
+
+        this._onClick = (e) => {
+            if (!this._graphAvailable) return;
+            const pt = this._eventToPoint(e);
+            const w = this._screenToWorld(pt.x, pt.y);
+            const hitNode = this._hitTestNode(w.x, w.y);
+            if (hitNode) {
+                this._selectedNodeId = hitNode.id;
+                this._selectedEdgeId = null;
+                this._dirty = true;
+                this.onSelect?.({ kind: 'node', id: hitNode.id });
+                return;
+            }
+
+            const hitEdge = this._hitTestEdge(w.x, w.y);
+            if (hitEdge) {
+                this._selectedEdgeId = hitEdge.id;
+                this._dirty = true;
+                this.onSelect?.({ kind: 'edge', id: hitEdge.id });
+            }
+        };
+
+        this._onMouseMove = (e) => {
+            if (!this._graphAvailable) {
+                this.canvas.style.cursor = 'default';
+                return;
+            }
+            const pt = this._eventToPoint(e);
+            const w = this._screenToWorld(pt.x, pt.y);
+            const hit = this._hitTestNode(w.x, w.y) || this._hitTestEdge(w.x, w.y);
+            this.canvas.style.cursor = hit ? 'pointer' : 'default';
+        };
+
+        this._onPointerDown = (e) => {
+            if (!this._graphAvailable) return;
+            this.canvas.setPointerCapture?.(e.pointerId);
+            const pt = this._eventToPoint(e);
+            const w = this._screenToWorld(pt.x, pt.y);
+            const hitNode = this._hitTestNode(w.x, w.y);
+            const hitEdge = hitNode ? null : this._hitTestEdge(w.x, w.y);
+
+            // If clicking on a node/edge, allow selection via click; otherwise pan.
+            if (!hitNode && !hitEdge) {
+                this._drag = { x: pt.x, y: pt.y, tx: this._view.tx, ty: this._view.ty };
+                this.canvas.style.cursor = 'grabbing';
+            }
+        };
+
+        this._onPointerMove = (e) => {
+            if (!this._drag) return;
+            const pt = this._eventToPoint(e);
+            const dx = pt.x - this._drag.x;
+            const dy = pt.y - this._drag.y;
+            this._view.tx = this._drag.tx + dx;
+            this._view.ty = this._drag.ty + dy;
+            this._dirty = true;
+        };
+
+        this._onPointerUp = (_e) => {
+            if (this._drag) {
+                this._drag = null;
+                this.canvas.style.cursor = 'default';
+            }
+        };
+
+        this._onWheel = (e) => {
+            if (!this._graphAvailable) return;
+            e.preventDefault();
+            const pt = this._eventToPoint(e);
+            const before = this._screenToWorld(pt.x, pt.y);
+
+            const dir = e.deltaY > 0 ? -1 : 1;
+            const factor = dir > 0 ? 1.12 : 1 / 1.12;
+            const next = Math.max(0.15, Math.min(4.0, this._view.scale * factor));
+            if (Math.abs(next - this._view.scale) < 1e-6) return;
+
+            this._view.scale = next;
+            // Keep cursor anchored.
+            this._view.tx = pt.x - before.x * this._view.scale;
+            this._view.ty = pt.y - before.y * this._view.scale;
+            this._dirty = true;
+        };
+    }
+
+    setGraph(graph) {
+        this._graphAvailable = !!graph?.available;
+        this._nodes = [];
+        this._edges = [];
+        this._nodeById.clear();
+        this._edgeById.clear();
+        this._alpha = this._graphAvailable ? 1.0 : 0.0;
+        this._dirty = true;
+
+        if (!this._graphAvailable) return;
+
+        const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+        const edges = Array.isArray(graph.edges) ? graph.edges : [];
+
+        const { width, height } = this._getViewportSize();
+        const cx = width / 2;
+        const cy = height / 2;
+
+        // Reset view on new graph.
+        this._view = { tx: 0, ty: 0, scale: 1 };
+
+        nodes.forEach((n, idx) => {
+            const h = this._hashString(String(n.id));
+            const angle = (h % 360) * (Math.PI / 180);
+            const radius = 40 + (h % 200);
+            const x = cx + Math.cos(angle) * radius + ((h % 13) - 6);
+            const y = cy + Math.sin(angle) * radius + (((h >> 4) % 13) - 6);
+            const node = {
+                id: n.id,
+                raw: n,
+                x,
+                y,
+                vx: 0,
+                vy: 0,
+                r: 10,
+                label: this.getNodeLabel?.(n) || String(n.id),
+                labels: Array.isArray(n.labels) ? n.labels : [],
+            };
+            this._nodes.push(node);
+            this._nodeById.set(n.id, idx);
+        });
+
+        edges.forEach((e) => {
+            const si = this._nodeById.get(e.source);
+            const ti = this._nodeById.get(e.target);
+            if (si === undefined || ti === undefined) return;
+            const edge = {
+                id: e.id,
+                raw: e,
+                s: si,
+                t: ti,
+                type: e.type || 'RELATED_TO',
+            };
+            this._edges.push(edge);
+            this._edgeById.set(e.id, edge);
+        });
+
+        // Small graphs: let repulsion do the work. Large graphs: reduce cost.
+        if (this._nodes.length > 250) {
+            this._alpha = 0.35;
+        }
+    }
+
+    setSearchQuery(query) {
+        this._searchQuery = (query || '').trim().toLowerCase();
+        this._dirty = true;
+    }
+
+    setSelection({ nodeId, edgeId }) {
+        this._selectedNodeId = nodeId || null;
+        this._selectedEdgeId = edgeId || null;
+        this._dirty = true;
+    }
+
+    start() {
+        if (this._running) return;
+        this._running = true;
+        this.resize();
+
+        if (!this._attached) {
+            window.addEventListener('resize', this._onResize);
+            this.canvas.addEventListener('click', this._onClick);
+            this.canvas.addEventListener('mousemove', this._onMouseMove);
+            this.canvas.addEventListener('pointerdown', this._onPointerDown);
+            this.canvas.addEventListener('pointermove', this._onPointerMove);
+            this.canvas.addEventListener('pointerup', this._onPointerUp);
+            this.canvas.addEventListener('pointercancel', this._onPointerUp);
+            this.canvas.addEventListener('wheel', this._onWheel, { passive: false });
+            this._attached = true;
+        }
+
+        const loop = () => {
+            if (!this._running) return;
+            const needsSim = this._alpha > 0.02;
+            if (needsSim) this._tick();
+            if (needsSim || this._dirty) {
+                this._render();
+                this._dirty = false;
+            }
+            this._raf = requestAnimationFrame(loop);
+        };
+
+        this._raf = requestAnimationFrame(loop);
+    }
+
+    stop() {
+        this._running = false;
+        if (this._raf) {
+            cancelAnimationFrame(this._raf);
+            this._raf = null;
+        }
+        if (this._attached) {
+            window.removeEventListener('resize', this._onResize);
+            this.canvas.removeEventListener('click', this._onClick);
+            this.canvas.removeEventListener('mousemove', this._onMouseMove);
+            this.canvas.removeEventListener('pointerdown', this._onPointerDown);
+            this.canvas.removeEventListener('pointermove', this._onPointerMove);
+            this.canvas.removeEventListener('pointerup', this._onPointerUp);
+            this.canvas.removeEventListener('pointercancel', this._onPointerUp);
+            this.canvas.removeEventListener('wheel', this._onWheel);
+            this._attached = false;
+        }
+    }
+
+    resize() {
+        const { width, height } = this._getViewportSize();
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        this.canvas.width = Math.floor(width * dpr);
+        this.canvas.height = Math.floor(height * dpr);
+        this.canvas.style.width = `${width}px`;
+        this.canvas.style.height = `${height}px`;
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    _getViewportSize() {
+        const rect = this.wrap.getBoundingClientRect();
+        return {
+            width: Math.max(1, Math.floor(rect.width)),
+            height: Math.max(1, Math.floor(rect.height)),
+        };
+    }
+
+    _eventToPoint(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+        };
+    }
+
+    _tick() {
+        const { width, height } = this._getViewportSize();
+        const cx = width / 2;
+        const cy = height / 2;
+
+        const alpha = this._alpha;
+        const nodes = this._nodes;
+        const edges = this._edges;
+
+        const centerPull = 0.002 * alpha;
+        const damping = 0.88;
+
+        // Link forces
+        const linkLen = 120;
+        const linkStrength = 0.010 * alpha;
+        for (const e of edges) {
+            const a = nodes[e.s];
+            const b = nodes[e.t];
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const dist = Math.max(1e-3, Math.hypot(dx, dy));
+            const diff = dist - linkLen;
+            const f = diff * linkStrength;
+            const fx = (dx / dist) * f;
+            const fy = (dy / dist) * f;
+            a.vx += fx;
+            a.vy += fy;
+            b.vx -= fx;
+            b.vy -= fy;
+        }
+
+        // Repulsion (skip expensive n^2 for large graphs)
+        if (nodes.length <= 180) {
+            const repel = 2200 * alpha;
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const a = nodes[i];
+                    const b = nodes[j];
+                    const dx = b.x - a.x;
+                    const dy = b.y - a.y;
+                    const dist2 = Math.max(25, dx * dx + dy * dy);
+                    const f = repel / dist2;
+                    const fx = dx * f;
+                    const fy = dy * f;
+                    a.vx -= fx;
+                    a.vy -= fy;
+                    b.vx += fx;
+                    b.vy += fy;
+                }
+            }
+        }
+
+        // Integrate + center gravity
+        for (const n of nodes) {
+            n.vx += (cx - n.x) * centerPull;
+            n.vy += (cy - n.y) * centerPull;
+
+            n.x += n.vx;
+            n.y += n.vy;
+
+            n.vx *= damping;
+            n.vy *= damping;
+
+            const m = n.r + 8;
+            if (n.x < m) { n.x = m; n.vx *= -0.4; }
+            if (n.y < m) { n.y = m; n.vy *= -0.4; }
+            if (n.x > width - m) { n.x = width - m; n.vx *= -0.4; }
+            if (n.y > height - m) { n.y = height - m; n.vy *= -0.4; }
+        }
+
+        this._alpha *= 0.985;
+    }
+
+    _render() {
+        const theme = this.getTheme?.() || {};
+        const { width, height } = this._getViewportSize();
+        const ctx = this.ctx;
+
+        // Background
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = theme.bg;
+        ctx.fillRect(0, 0, width, height);
+
+        if (!this._graphAvailable || this._nodes.length === 0) return;
+
+        const selectedNodeId = this._selectedNodeId;
+        const selectedEdgeId = this._selectedEdgeId;
+        const q = this._searchQuery;
+
+        // World transform
+        ctx.save();
+        ctx.translate(this._view.tx, this._view.ty);
+        ctx.scale(this._view.scale, this._view.scale);
+
+        // Edges
+        ctx.lineWidth = 1;
+        for (const e of this._edges) {
+            const a = this._nodes[e.s];
+            const b = this._nodes[e.t];
+            const isSelected = selectedEdgeId && e.id === selectedEdgeId;
+            ctx.strokeStyle = isSelected ? theme.accent : theme.border;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+        }
+
+        // Nodes
+        for (const n of this._nodes) {
+            const isSelected = selectedNodeId && n.id === selectedNodeId;
+            const matches = q
+                ? (n.label || '').toLowerCase().includes(q) || (n.labels || []).join(' ').toLowerCase().includes(q)
+                : false;
+
+            // Outer ring for selection/search
+            if (isSelected || matches) {
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, n.r + (isSelected ? 6 : 4), 0, Math.PI * 2);
+                ctx.fillStyle = isSelected ? (theme.accentFill || 'rgba(0,0,0,0.2)') : (theme.accentFill || 'rgba(0,0,0,0.2)');
+                ctx.fill();
+            }
+
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+            ctx.fillStyle = theme.panel;
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = isSelected ? theme.accent : theme.border;
+            ctx.stroke();
+        }
+
+        // Labels (last for readability)
+        ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+        ctx.fillStyle = theme.text;
+        ctx.textBaseline = 'middle';
+        for (const n of this._nodes) {
+            const text = n.label || '';
+            if (!text) continue;
+            ctx.fillText(text, n.x + n.r + 8, n.y);
+        }
+
+        ctx.restore();
+    }
+
+    _screenToWorld(x, y) {
+        const s = this._view.scale || 1;
+        return {
+            x: (x - this._view.tx) / s,
+            y: (y - this._view.ty) / s,
+        };
+    }
+
+    _hitTestNode(x, y) {
+        // Find closest node within radius
+        let best = null;
+        let bestD2 = Infinity;
+        for (const n of this._nodes) {
+            const dx = x - n.x;
+            const dy = y - n.y;
+            const d2 = dx * dx + dy * dy;
+            const r = n.r + 6;
+            if (d2 <= r * r && d2 < bestD2) {
+                best = n;
+                bestD2 = d2;
+            }
+        }
+        return best;
+    }
+
+    _hitTestEdge(x, y) {
+        const threshold = 8;
+        let best = null;
+        let bestD = Infinity;
+        for (const e of this._edges) {
+            const a = this._nodes[e.s];
+            const b = this._nodes[e.t];
+            const d = this._distPointToSegment(x, y, a.x, a.y, b.x, b.y);
+            if (d <= threshold && d < bestD) {
+                best = e;
+                bestD = d;
+            }
+        }
+        return best;
+    }
+
+    _distPointToSegment(px, py, ax, ay, bx, by) {
+        const abx = bx - ax;
+        const aby = by - ay;
+        const apx = px - ax;
+        const apy = py - ay;
+        const ab2 = abx * abx + aby * aby;
+        if (ab2 < 1e-6) return Math.hypot(px - ax, py - ay);
+        let t = (apx * abx + apy * aby) / ab2;
+        t = Math.max(0, Math.min(1, t));
+        const cx = ax + abx * t;
+        const cy = ay + aby * t;
+        return Math.hypot(px - cx, py - cy);
+    }
+
+    _hashString(str) {
+        let h = 2166136261;
+        for (let i = 0; i < str.length; i++) {
+            h ^= str.charCodeAt(i);
+            h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
     }
 }
 

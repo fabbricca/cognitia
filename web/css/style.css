@@ -2663,6 +2663,32 @@ body {
   min-width: 0;
 }
 
+.memory-graph-canvas-wrap {
+  position: relative;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  height: 520px;
+  max-height: calc(85vh - 260px);
+}
+
+#graph-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.graph-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0);
+}
+
 .memory-graph-columns {
   display: flex;
   gap: 16px;
@@ -2746,8 +2772,9 @@ body {
     width: 100%;
     flex: none;
   }
-  .memory-graph-columns {
-    flex-direction: column;
+  .memory-graph-canvas-wrap {
+    height: 420px;
+    max-height: calc(85vh - 320px);
   }
 }
 

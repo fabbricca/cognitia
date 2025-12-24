@@ -536,18 +536,10 @@
 
                     <div class="memory-graph-layout">
                         <div class="memory-graph-main">
-                            <div class="memory-graph-columns">
-                                <div class="memory-graph-col">
-                                    <h4 class="memory-subsection-title">Nodes</h4>
-                                    <div class="memory-list" id="graph-nodes-list">
-                                        <p class="empty-message">No graph data yet</p>
-                                    </div>
-                                </div>
-                                <div class="memory-graph-col">
-                                    <h4 class="memory-subsection-title">Edges</h4>
-                                    <div class="memory-list" id="graph-edges-list">
-                                        <p class="empty-message">Select a node to see connections</p>
-                                    </div>
+                            <div class="memory-graph-canvas-wrap" id="graph-canvas-wrap" aria-label="Memory graph">
+                                <canvas id="graph-canvas"></canvas>
+                                <div class="graph-overlay" id="graph-overlay">
+                                    <p class="empty-message">Loading graph…</p>
                                 </div>
                             </div>
                         </div>
