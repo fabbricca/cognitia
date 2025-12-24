@@ -1,5 +1,0 @@
-services:
-  app:
-    build: .
-    ports:
-      - '${PORT:-5050}:5050'

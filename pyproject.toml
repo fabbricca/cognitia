@@ -1,53 +1,30 @@
 [project]
 name = "cognitia"
 version = "0.1.0"
-description = "GLaDOS Voice Assistant"
+description = "Cognitia microservices (API/Auth/Web/Memory add-on)"
 requires-python = ">=3.10"
 dependencies = [
-    "sounddevice>=0.5.1",
-    "levenshtein>=0.26.1",
-    "loguru>=0.7.3",
-    "jinja2>=3.1.5",
-    "requests>=2.32.3",
-    "textual>=1.0.0",
-    "pyyaml>=6.0.2",
-    "numba>=0.61.0",
-    "soundfile>=0.13.0",
-    "pydantic>=2.10.6",
-    "httpx>=0.28.1",
-    "rich>=14.0.0",
-    "pyjwt>=2.8.0",
-    "bcrypt>=4.1.0",
-    # API dependencies
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
     "sqlalchemy[asyncio]>=2.0.25",
     "asyncpg>=0.29.0",
-    "aiofiles>=23.2.1",
+    "pydantic>=2.10.6",
+    "pydantic-settings>=2.0.0",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "PyJWT[crypto]>=2.8.0",
+    "bcrypt>=4.1.0",
     "python-multipart>=0.0.6",
-    # WebSocket bridge
-    "aiohttp>=3.9.0",
+    "aiofiles>=23.2.1",
     "websockets>=12.0",
 ]
 
 [project.optional-dependencies]
-cuda = ["onnxruntime-gpu>=1.16.0"]
-cpu = ["onnxruntime>=1.16.0"]
 dev = [
     "pytest",
     "pytest-anyio",
     "ruff",
-    "ipykernel",
-    "types-requests",
-    "types-PyYAML",
 ]
-api = ["litestar[standard,structlog]>=2.15.1"]
-
-[project.scripts]
-cognitia = "cognitia.cli:main"
-glados-api = "cognitia.api.main:run"
-glados-bridge = "cognitia.bridge.server:run"
-glados-tui = "cognitia.tui.app:main"
 
 
 # Build system

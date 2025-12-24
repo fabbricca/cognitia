@@ -15,10 +15,9 @@ RUN pip install --no-cache-dir \
     sqlalchemy[asyncio] \
     asyncpg \
     psycopg2-binary \
-    aiosqlite \
     pydantic \
     bcrypt \
-    PyJWT \
+    PyJWT[crypto] \
     httpx \
     cryptography
 

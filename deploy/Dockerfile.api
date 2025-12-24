@@ -1,5 +1,4 @@
-# Cognitia Entrance Server Dockerfile
-# Lightweight API server for authentication, CRUD, and WebSocket proxy
+# Cognitia API microservice Dockerfile
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -20,47 +19,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements first for better layer caching
 COPY pyproject.toml README.md ./
 
-# Install Python dependencies for Entrance (no GPU/AI deps)
-# v2 additions: alembic, celery, redis, stripe
+# Install Python dependencies for the API microservice
 RUN pip install --no-cache-dir \
     fastapi[standard] \
     uvicorn[standard] \
     sqlalchemy[asyncio] \
     asyncpg \
     psycopg2-binary \
-    aiosqlite \
     pydantic \
-    PyJWT \
+    PyJWT[crypto] \
     bcrypt \
     python-multipart \
     aiofiles \
     loguru \
     websockets \
     httpx \
-    alembic \
-    celery[redis] \
-    redis \
-    stripe \
-    python-dotenv \
     cryptography
 
 # Copy source code - only API module needed
 RUN mkdir -p ./cognitia && echo '"""Cognitia API."""\n__version__ = "0.1.0"' > ./cognitia/__init__.py
 COPY src/cognitia/api ./cognitia/api
 
-# Copy web frontend
+# Copy web frontend (static assets + avatars mountpoint)
 COPY web ./web
-
-# Copy Alembic configuration and migrations for database schema management
-COPY alembic.ini ./alembic.ini
-COPY alembic ./alembic
 
 # Fix permissions on all copied files and create data directories
 # Give cognitia user ownership of /app for development (alembic init, etc.)
-RUN chmod -R a+r /app/cognitia /app/web /app/alembic && \
+RUN chmod -R a+r /app/cognitia /app/web && \
     find /app/cognitia -type d -exec chmod a+rx {} \; && \
     find /app/web -type d -exec chmod a+rx {} \; && \
-    find /app/alembic -type d -exec chmod a+rx {} \; && \
     mkdir -p /app/data /app/web/avatars && \
     chown -R cognitia:cognitia /app
 

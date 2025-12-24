@@ -41,10 +41,6 @@ class Settings(BaseSettings):
     # Persona storage
     PERSONA_STORAGE_DIR: str = "./personas"
 
-    # Redis for Celery
-    REDIS_HOST: str = "redis-memory"
-    REDIS_PORT: int = 6379
-
     class Config:
         env_file = ".env"
 
