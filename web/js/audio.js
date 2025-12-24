@@ -20,6 +20,7 @@ export class AudioManager {
         this.isPlaying = false;
         this.audioQueue = [];
         this.currentSource = null;
+        this.ownsMediaStreamTracks = false;
         this.sampleRate = 16000; // Match Cognitia sample rate
         
         // Call mode with circular buffer (like original Cognitia)
@@ -229,6 +230,8 @@ export class AudioManager {
             this.analyser = this.audioContext.createAnalyser();
             this.analyser.fftSize = 512;
 
+            this.ownsMediaStreamTracks = true;
+
             source.connect(this.analyser);
             this.analyser.connect(processor);
             processor.connect(this.audioContext.destination);
@@ -267,6 +270,38 @@ export class AudioManager {
             return true;
         } catch (error) {
             console.error('Failed to start call mode:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Start call-mode volume metering using an existing MediaStream.
+     * Intended for LiveKit/WebRTC where mic is already captured elsewhere.
+     */
+    async startCallMeterFromStream(mediaStream) {
+        if (!mediaStream) return false;
+
+        try {
+            if (!this.audioContext) await this.init();
+
+            // Clean up any previous nodes without stopping external tracks.
+            if (this.scriptProcessor) {
+                this.scriptProcessor.disconnect();
+                this.scriptProcessor = null;
+            }
+
+            this.mediaStream = mediaStream;
+            this.ownsMediaStreamTracks = false;
+
+            const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+            this.analyser = this.audioContext.createAnalyser();
+            this.analyser.fftSize = 512;
+
+            source.connect(this.analyser);
+            this.inCall = true;
+            return true;
+        } catch (error) {
+            console.error('Failed to start call meter:', error);
             return false;
         }
     }
@@ -428,10 +463,23 @@ export class AudioManager {
             this.scriptProcessor = null;
         }
 
+        if (this.analyser) {
+            try {
+                this.analyser.disconnect();
+            } catch {
+                // ignore
+            }
+            this.analyser = null;
+        }
+
         if (this.mediaStream) {
-            this.mediaStream.getTracks().forEach(track => track.stop());
+            if (this.ownsMediaStreamTracks) {
+                this.mediaStream.getTracks().forEach(track => track.stop());
+            }
             this.mediaStream = null;
         }
+
+        this.ownsMediaStreamTracks = false;
 
         this.resetCallState();
         this.inCall = false;

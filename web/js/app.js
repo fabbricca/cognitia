@@ -3,7 +3,6 @@
  * Main Application
  */
 
-import { WebSocketManager } from './websocket.js';
 import { AudioManager } from './audio.js';
 import { api } from './api.js';
 
@@ -20,13 +19,14 @@ class CognitiaApp {
         this.pendingUserAudio = null;        // Pending user audio awaiting transcription
         this.pendingAssistantText = '';      // Accumulated text for audio responses
 
-        // Managers
-        this.ws = null;
-        this.audio = new AudioManager();
+        // Streaming + LiveKit state
+        this.chatStreamAbortController = null;
+        this.livekitRoom = null;
+        this.livekitLocalAudioTrack = null;
+        this.livekitRemoteAudioElements = [];
 
-        // Config - use wss:// for HTTPS, ws:// for HTTP
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        this.wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+        // Managers
+        this.audio = new AudioManager();
 
         // DOM elements
         this.elements = {};
@@ -593,11 +593,7 @@ class CognitiaApp {
         } catch (error) {
             console.error('Logout error:', error);
         }
-        
-        if (this.ws) {
-            this.ws.disconnect();
-        }
-        
+
         this.showLoginScreen();
     }
 
@@ -632,8 +628,9 @@ class CognitiaApp {
             console.error('Failed to load profile:', error);
         }
 
-        // Connect WebSocket
-        await this.connectWebSocket();
+        // No WebSocket: SSE + LiveKit are used for realtime.
+        this.elements.connectionStatus.textContent = 'Online';
+        this.elements.connectionStatus.classList.add('online');
 
         // Load data
         await this.loadChats();
@@ -657,74 +654,6 @@ class CognitiaApp {
             this.elements.userInitial.textContent = initial;
             this.elements.userInitial.classList.remove('hidden');
             this.elements.userAvatarImg.classList.add('hidden');
-        }
-    }
-
-    // WebSocket
-    async connectWebSocket() {
-        this.ws = new WebSocketManager(this.wsUrl);
-
-        this.ws.on('connected', () => {
-            this.elements.connectionStatus.textContent = 'Online';
-            this.elements.connectionStatus.classList.add('online');
-            
-            // Authenticate
-            this.ws.send({
-                type: 'auth',
-                token: api.token
-            });
-        });
-
-        this.ws.on('disconnected', () => {
-            this.elements.connectionStatus.textContent = 'Offline';
-            this.elements.connectionStatus.classList.remove('online');
-        });
-
-        this.ws.on('error', (error) => {
-            console.error('WebSocket error:', error);
-        });
-
-        // Handle incoming messages
-        this.ws.on('typing', (msg) => {
-            this.handleTypingIndicator(msg);
-        });
-
-        this.ws.on('text_chunk', (msg) => {
-            this.handleTextChunk(msg);
-        });
-
-        this.ws.on('text_complete', (msg) => {
-            this.handleTextComplete(msg);
-        });
-
-        this.ws.on('audio', (msg) => {
-            this.handleAudioResponse(msg);
-        });
-
-        this.ws.on('transcription', (msg) => {
-            this.handleTranscription(msg);
-        });
-
-        this.ws.on('user_transcription', (msg) => {
-            this.handleUserTranscription(msg);
-        });
-
-        this.ws.on('memory_update', (msg) => {
-            this.handleMemoryUpdate(msg);
-        });
-
-        this.ws.on('status', (msg) => {
-            console.log('Status:', msg.message);
-        });
-
-        this.ws.on('error', (msg) => {
-            console.error('Server error:', msg.message);
-        });
-
-        try {
-            await this.ws.connect();
-        } catch (error) {
-            console.error('WebSocket connection failed:', error);
         }
     }
 
@@ -925,17 +854,6 @@ class CognitiaApp {
             } catch (error) {
                 console.error('Failed to load character:', error);
             }
-        }
-
-        // Switch character on backend
-        if (this.currentCharacter && this.ws) {
-            this.ws.switchCharacter(
-                this.currentCharacter.id,
-                this.currentCharacter.system_prompt,
-                this.currentCharacter.voice_model,
-                this.currentCharacter.rvc_model_path,
-                this.currentCharacter.rvc_index_path
-            );
         }
 
         // Load messages
@@ -1209,9 +1127,124 @@ class CognitiaApp {
         this.currentStreamingElement = null;
         this.currentStreamingText = '';
 
-        // Send to WebSocket
-        if (this.ws) {
-            this.ws.sendText(text, this.currentChat.id, this.currentCharacter?.id);
+        // Stream via sentence-level SSE
+        await this.streamChatViaSSE(text);
+    }
+
+    abortChatStream() {
+        if (this.chatStreamAbortController) {
+            try {
+                this.chatStreamAbortController.abort();
+            } catch {
+                // ignore
+            }
+            this.chatStreamAbortController = null;
+        }
+    }
+
+    parseSSEBlock(raw) {
+        // SSE message is separated by blank line; lines are key: value.
+        // We only care about event + data.
+        const lines = raw.split(/\r?\n/);
+        let event = 'message';
+        let data = '';
+        for (const line of lines) {
+            if (line.startsWith('event:')) {
+                event = line.slice('event:'.length).trim();
+            } else if (line.startsWith('data:')) {
+                const chunk = line.slice('data:'.length).trim();
+                data += chunk;
+            }
+        }
+        if (!data) return { event, data: null };
+        try {
+            return { event, data: JSON.parse(data) };
+        } catch {
+            return { event, data };
+        }
+    }
+
+    async streamChatViaSSE(text) {
+        if (!this.currentChat) return;
+
+        // Cancel any in-flight stream to avoid interleaving.
+        this.abortChatStream();
+        this.chatStreamAbortController = new AbortController();
+
+        const payload = {
+            chat_id: this.currentChat.id,
+            character_id: this.currentCharacter?.id || this.currentChat?.character_id,
+            message: text,
+            prefer_orchestrator: true
+        };
+
+        try {
+            const resp = await fetch('/api/chat/stream', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(api.token ? { 'Authorization': `Bearer ${api.token}` } : {})
+                },
+                body: JSON.stringify(payload),
+                signal: this.chatStreamAbortController.signal
+            });
+
+            if (!resp.ok) {
+                const body = await resp.text().catch(() => '');
+                throw new Error(body || `Stream failed (${resp.status})`);
+            }
+
+            const reader = resp.body?.getReader();
+            if (!reader) {
+                throw new Error('Streaming not supported');
+            }
+
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                buffer = buffer.replace(/\r\n/g, '\n');
+
+                // SSE frames are separated by a blank line.
+                while (true) {
+                    const sepIdx = buffer.indexOf('\n\n');
+                    if (sepIdx === -1) break;
+                    const frame = buffer.slice(0, sepIdx);
+                    buffer = buffer.slice(sepIdx + 2);
+
+                    const { event, data } = this.parseSSEBlock(frame);
+                    if (!event) continue;
+
+                    if (event === 'sentence') {
+                        const sentence = data?.text;
+                        if (sentence && sentence.trim()) {
+                            this.hideTypingIndicator();
+                            this.appendMessage('assistant', sentence);
+                            if (this.currentChat) {
+                                api.createMessage(this.currentChat.id, sentence, 'assistant').catch(console.error);
+                            }
+                            this.messages.push({ role: 'assistant', content: sentence });
+                        }
+                    } else if (event === 'error') {
+                        this.hideTypingIndicator();
+                        throw new Error(data?.message || 'stream failed');
+                    } else if (event === 'done') {
+                        this.hideTypingIndicator();
+                        break;
+                    }
+                }
+            }
+        } catch (error) {
+            if (error?.name === 'AbortError') {
+                return;
+            }
+            console.error('SSE chat stream error:', error);
+            this.hideTypingIndicator();
+        } finally {
+            this.chatStreamAbortController = null;
         }
     }
 
@@ -1250,55 +1283,6 @@ class CognitiaApp {
         if (indicator) {
             indicator.remove();
         }
-    }
-
-    handleTypingIndicator(msg) {
-        // Server sent typing indicator, show it if not already showing
-        if (!document.getElementById('typing-indicator')) {
-            this.showTypingIndicator();
-        }
-    }
-
-    handleTextChunk(msg) {
-        // Hide typing indicator on first chunk
-        this.hideTypingIndicator();
-        
-        // Each sentence is a separate message
-        const sentence = msg.content;
-        if (sentence && sentence.trim()) {
-            if (this.expectingAudioResponse) {
-                // Accumulate text for saving with audio later
-                this.pendingAssistantText = (this.pendingAssistantText || '') + sentence + ' ';
-                return;
-            }
-            
-            // Text-only mode: display and save immediately
-            // Create a new message element for this sentence
-            this.appendMessage('assistant', sentence);
-            
-            // Save to database
-            if (this.currentChat) {
-                api.createMessage(this.currentChat.id, sentence, 'assistant').catch(console.error);
-            }
-            
-            this.messages.push({ role: 'assistant', content: sentence });
-        }
-    }
-
-    handleTextComplete(msg) {
-        // Hide typing indicator
-        this.hideTypingIndicator();
-        
-        // In sentence-by-sentence mode, messages were already created in handleTextChunk
-        // This handler is mainly for cleanup and non-streaming fallback
-        
-        // Reset streaming state
-        this.currentStreamingText = '';
-        this.currentStreamingElement = null;
-        this.pendingAssistantText = '';
-        
-        // Reset audio expectation flag
-        this.expectingAudioResponse = false;
     }
 
     handleAudioResponse(msg) {
@@ -1495,7 +1479,7 @@ class CognitiaApp {
         
         try {
             const audioData = await this.audio.stopRecording();
-            if (audioData && this.ws && this.currentChat) {
+            if (audioData && this.currentChat) {
                 // Store pending audio data for preview
                 const audioBlob = this.base64ToBlob(audioData.data, 'audio/webm');
                 const audioUrl = URL.createObjectURL(audioBlob);
@@ -1670,7 +1654,13 @@ class CognitiaApp {
     }
     
     sendPreviewedAudio() {
-        if (!this.pendingAudioData || !this.ws || !this.currentChat) return;
+        if (!this.pendingAudioData || !this.currentChat) return;
+
+        // Voice messages previously relied on a legacy WebSocket backend.
+        // In the new architecture, calls use LiveKit and chat uses SSE.
+        this.showToast('Voice messages are not available (LiveKit calls only).', 'info', 3500);
+        this.hideAudioPreview();
+        return;
         
         const { data, format, sampleRate, url } = this.pendingAudioData;
         
@@ -1688,19 +1678,7 @@ class CognitiaApp {
         // Mark that we expect audio response
         this.expectingAudioResponse = true;
         
-        // Send to backend
-        this.ws.sendAudio(
-            data,
-            format,
-            sampleRate,
-            this.currentChat.id,
-            this.currentCharacter?.id
-        );
-        
-        // Hide modal (but don't revoke URL since it's now in the chat)
-        this.elements.previewAudio.pause();
-        this.pendingAudioData = null;
-        this.elements.audioPreviewModal.classList.remove('active');
+        // (disabled)
     }
     
     // Helper to convert base64 to Blob
@@ -1881,22 +1859,70 @@ class CognitiaApp {
         this.elements.callOverlay.classList.remove('hidden');
         this.elements.callBtn.classList.add('active');
 
-        // Start call on backend
-        if (this.ws) {
-            this.ws.startCall(this.currentChat.id, this.currentCharacter.id);
-        }
+        this.elements.callStatus.textContent = 'Connecting...';
 
-        // Start VAD audio processing
-        await this.audio.startCallMode((audioData, format, sampleRate) => {
-            if (this.ws && this.isInCall) {
-                this.ws.sendAudio(audioData, format, sampleRate, this.currentChat.id, this.currentCharacter.id);
-            }
-        });
+        try {
+            const roomName = `chat-${this.currentChat.id}`;
+            const participantName = (this.currentUser?.email || 'user').split('@')[0];
+
+            const tokenResp = await api.request('POST', '/api/call/token', {
+                room: roomName,
+                participant_name: participantName
+            });
+
+            const lk = await import('https://cdn.jsdelivr.net/npm/livekit-client@2.7.7/dist/livekit-client.esm.mjs');
+            const { Room, RoomEvent, Track, createLocalAudioTrack } = lk;
+
+            const room = new Room();
+            this.livekitRoom = room;
+
+            room.on(RoomEvent.Disconnected, () => {
+                this.elements.callStatus.textContent = 'Disconnected';
+                if (this.isInCall) {
+                    this.endCall();
+                }
+            });
+
+            room.on(RoomEvent.TrackSubscribed, (track) => {
+                if (track?.kind === Track.Kind.Audio) {
+                    const el = track.attach();
+                    el.autoplay = true;
+                    el.playsInline = true;
+                    // Keep audio elements off-screen; overlay UX stays unchanged.
+                    el.style.display = 'none';
+                    document.body.appendChild(el);
+                    this.livekitRemoteAudioElements.push(el);
+                }
+            });
+
+            await room.connect(tokenResp.url, tokenResp.token);
+
+            this.livekitLocalAudioTrack = await createLocalAudioTrack({
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            });
+
+            await room.localParticipant.publishTrack(this.livekitLocalAudioTrack);
+
+            // Use the already-captured mic track for volume metering.
+            const meterStream = new MediaStream([this.livekitLocalAudioTrack.mediaStreamTrack]);
+            await this.audio.startCallMeterFromStream(meterStream);
+
+            this.elements.callStatus.textContent = 'Connected';
+        } catch (error) {
+            console.error('LiveKit call failed:', error);
+            this.elements.callStatus.textContent = 'Failed';
+            this.endCall();
+            return;
+        }
 
         // Volume meter animation
         this.volumeInterval = setInterval(() => {
             const volume = this.audio.getVolume();
-            this.elements.volumeLevel.style.width = `${volume * 100}%`;
+            if (this.elements.volumeLevel) {
+                this.elements.volumeLevel.style.width = `${volume * 100}%`;
+            }
         }, 100);
     }
 
@@ -1905,14 +1931,29 @@ class CognitiaApp {
         this.elements.callOverlay.classList.add('hidden');
         this.elements.callBtn.classList.remove('active');
 
-        // Stop call on backend
-        if (this.ws) {
-            this.ws.endCall();
-        }
+        // Stop LiveKit
+        try {
+            if (this.livekitLocalAudioTrack) {
+                try { this.livekitLocalAudioTrack.stop(); } catch { /* ignore */ }
+                this.livekitLocalAudioTrack = null;
+            }
 
-        // Stop audio
-        this.audio.stopCallMode();
-        this.audio.stopPlayback();
+            if (this.livekitRoom) {
+                try { this.livekitRoom.disconnect(); } catch { /* ignore */ }
+                this.livekitRoom = null;
+            }
+
+            if (this.livekitRemoteAudioElements.length) {
+                for (const el of this.livekitRemoteAudioElements) {
+                    try { el.remove(); } catch { /* ignore */ }
+                }
+                this.livekitRemoteAudioElements = [];
+            }
+        } finally {
+            // Stop meter + any queued playback
+            this.audio.stopCallMode();
+            this.audio.stopPlayback();
+        }
 
         if (this.volumeInterval) {
             clearInterval(this.volumeInterval);

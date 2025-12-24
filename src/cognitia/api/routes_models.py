@@ -9,15 +9,11 @@ import httpx
 from fastapi import APIRouter, Depends
 from loguru import logger
 
-import os
+from .orchestrator import get_orchestrator_url
 
 from .auth import get_user_id
 
-# Keep backward compatibility with existing k8s env naming.
-ORCHESTRATOR_URL = os.getenv(
-    "COGNITIA_ORCHESTRATOR_URL",
-    os.getenv("COGNITIA_CORE_URL", "http://10.0.0.15:8080"),
-).rstrip("/")
+ORCHESTRATOR_URL = get_orchestrator_url()
 
 router = APIRouter(prefix="/models", tags=["models"])
 

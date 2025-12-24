@@ -138,7 +138,16 @@ async def health_check():
         # Check connections
         graphiti_ok = graphiti_client is not None
         qdrant_ok = qdrant_client is not None
-        ollama_ok = True  # TODO: Implement Ollama health check
+        ollama_ok = False
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=2.5) as client:
+                # Ollama supports /api/tags even without a model loaded.
+                response = await client.get(f"{settings.OLLAMA_URL}/api/tags")
+                ollama_ok = response.status_code == 200
+        except Exception:
+            ollama_ok = False
 
         if not (graphiti_ok and qdrant_ok):
             return HealthResponse(
@@ -729,8 +738,18 @@ async def prune_old_memories(request: PruneRequest):
     try:
         logger.info(f"Pruning memories older than {request.days} days with salience < {request.min_salience}")
 
-        # TODO: Implement memory pruning
-        return PruneResponse(success=True, episodes_pruned=0, entities_pruned=0)
+        if not qdrant_client:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Qdrant client not initialized",
+            )
+
+        episodes_pruned = await qdrant_client.delete_old_episodes(
+            older_than_days=int(request.days),
+            min_salience=float(request.min_salience),
+        )
+
+        return PruneResponse(success=True, episodes_pruned=int(episodes_pruned), entities_pruned=0)
 
     except Exception as e:
         logger.error(f"Memory pruning failed: {e}")

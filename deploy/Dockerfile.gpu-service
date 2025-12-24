@@ -1,0 +1,35 @@
+# Generic GPU-host service image (orchestrator / worker / stubs)
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Minimal deps for FastAPI services
+RUN pip install --no-cache-dir \
+    fastapi[standard] \
+    uvicorn[standard] \
+    httpx \
+    loguru \
+    pydantic \
+    pydantic-settings \
+    redis
+
+# Copy code
+COPY src/cognitia ./cognitia
+
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Runtime config
+ENV APP_MODULE=cognitia.orchestrator.server
+ENV PORT=8080
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
+CMD ["sh", "-c", "uvicorn ${APP_MODULE}:app --host 0.0.0.0 --port ${PORT}"]

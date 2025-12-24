@@ -1,6 +1,6 @@
 # Cognitia - Multi-Character AI Platform
 
-A production-ready, multi-character AI voice assistant platform with modern architecture, featuring JWT authentication, group chats, voice cloning, and background job processing.
+A production-ready, multi-character AI voice assistant platform with modern architecture, featuring JWT authentication, sentence-level SSE chat streaming, and GPU-backed voice (STT/TTS/RVC).
 
 ## Features
 
@@ -10,16 +10,14 @@ A production-ready, multi-character AI voice assistant platform with modern arch
 - **Multi-Template Prompts** - Pygmalion, Alpaca, and ChatML formats for optimal LLM compatibility
 - **Group Chats** - Multi-participant, multi-character conversations
 - **Authentication** - JWT-based auth with email verification and password reset
-- **Subscription System** - Tiered plans (Free, Basic, Pro, Enterprise) with rate limiting
-- **Background Jobs** - Async email sending, AI generation, and scheduled tasks with Celery
-- **RESTful API v2** - 31 endpoints with OpenAPI documentation
+- **REST API** - FastAPI endpoints with OpenAPI documentation
 
 ### Technical Features
 - Repository pattern for clean data access
 - Service layer for business logic separation
 - FastAPI with full async/await support
-- PostgreSQL 15 with SQLAlchemy async ORM
-- Redis for Celery task queue
+- PostgreSQL with SQLAlchemy async ORM
+- Redis for caching and Redis Streams (memory updates)
 - Docker-first development and deployment
 - Kubernetes-ready with Flux CD GitOps
 
@@ -40,24 +38,25 @@ A production-ready, multi-character AI voice assistant platform with modern arch
 │  │  Cognitia API (FastAPI) - Port 8000                      │    │
 │  │  • User authentication (JWT)                             │    │
 │  │  • Character/Chat CRUD                                   │    │
-│  │  • WebSocket proxy to GPU Core                          │    │
+│  │  • Sentence-level SSE chat streaming                      │    │
+│  │  • LiveKit token minting (WebRTC calls)                   │    │
 │  │  • Static web UI serving                                │    │
 │  └───────┬─────────────────────────────────────────────────┘    │
 │          │                                                       │
-│  ┌───────▼────────┐  ┌──────────────┐  ┌────────────────┐      │
-│  │  PostgreSQL    │  │    Redis     │  │ Celery Workers │      │
-│  │  (Database)    │  │   (Broker)   │  │ (Background)   │      │
-│  └────────────────┘  └──────────────┘  └────────────────┘      │
+│  ┌───────▼────────┐  ┌──────────────┐                           │
+│  │  PostgreSQL    │  │    Redis     │                           │
+│  │  (Database)    │  │ (Cache+Streams)                          │
+│  └────────────────┘  └──────────────┘                           │
 └─────────────────────────────────────────────────────────────────┘
                                 ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │           GPU SERVER (Core - AI Processing)                      │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │  Cognitia Core (FastAPI + WebSocket)                     │    │
-│  │  • Speech-to-Text (Parakeet ASR)                        │    │
-│  │  • LLM Processing (Ollama: Hermes-4-14B)                │    │
-│  │  • Text-to-Speech (Kokoro)                              │    │
-│  │  • Voice Cloning (RVC)                                  │    │
+│  │  Cognitia GPU Tier (internal-only)                       │    │
+│  │  • Orchestrator (HTTP NDJSON token stream)               │    │
+│  │  • Memory service (Neo4j + Qdrant + Graphiti)            │    │
+│  │  • Memory worker (Redis Streams consumer)                │    │
+│  │  • STT/TTS services (ONNX, real endpoints)               │    │
 │  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -76,11 +75,11 @@ A production-ready, multi-character AI voice assistant platform with modern arch
 git clone https://github.com/yourusername/cognitia.git
 cd cognitia
 
-# Start all services
-docker-compose -f docker-compose.dev.yml up -d
+# Start local API + Postgres + Redis
+docker compose -f deploy/docker-compose.yaml up -d
 
 # Wait ~30 seconds for services to be healthy
-docker-compose -f docker-compose.dev.yml ps
+docker compose -f deploy/docker-compose.yaml ps
 
 # Verify API is running
 curl http://localhost:8000/health
@@ -88,6 +87,43 @@ curl http://localhost:8000/health
 # View API documentation
 open http://localhost:8000/docs
 ```
+
+### GPU Host Services (Orchestrator + Memory)
+
+Run GPU-tier services on the GPU machine (Neo4j, Qdrant, memory service, orchestrator, memory-worker, STT, TTS, optional RVC):
+
+```bash
+cp deploy/.env.gpu.example deploy/.env.gpu
+docker compose -f deploy/docker-compose.gpu.yaml --env-file deploy/.env.gpu up -d
+```
+
+### Model assets (required for TTS/STT)
+
+The GPU-tier `tts` and `stt` services load ONNX model assets from a shared resources directory mounted into the containers.
+
+- Local path: `data/resources/models/...`
+- Container path: `${COGNITIA_RESOURCES_ROOT:-/data/resources}/models/...`
+
+Populate `data/resources/models` with the legacy model files from your GPU host (example using rsync):
+
+`rsync -av --progress iberu@10.0.0.15:~/cognitia/models/ ./data/resources/models/`
+
+### Run
+
+Start the GPU-tier services:
+
+`docker compose -f deploy/docker-compose.gpu.yaml --env-file deploy/.env.gpu up -d`
+
+Optional: start the RVC service (heavy: torch + rvc-python):
+
+`docker compose -f deploy/docker-compose.gpu.yaml --env-file deploy/.env.gpu --profile rvc up -d`
+
+Key ports (defaults):
+- Orchestrator: 8080
+- Memory service: 8002
+- Memory worker: 8005
+- Neo4j: 7474/7687
+- Qdrant: 6333
 
 ### Test the API
 

@@ -37,7 +37,7 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # API Server (includes WebSocket, serves static files)
+  # API Server (REST + SSE, serves static files)
   api:
     build:
       context: ..
@@ -48,13 +48,19 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cognitia}:${POSTGRES_PASSWORD:-cognitia}@postgres:5432/${POSTGRES_DB:-cognitia}
       # Redis (for caching)
       REDIS_URL: redis://redis:6379/0
-      # Auth
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-key-change-in-production}
-      JWT_ALGORITHM: HS256
-      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-30}
-      # Cognitia Backend (for voice processing)
-      COGNITIA_BACKEND_HOST: ${COGNITIA_BACKEND_HOST:-host.docker.internal}
-      COGNITIA_BACKEND_PORT: ${COGNITIA_BACKEND_PORT:-7862}
+      # Auth (JWKS / RS256). For local-only dev you can point this at your auth service.
+      JWKS_URL: ${JWKS_URL:-http://host.docker.internal:8001/.well-known/jwks.json}
+      JWT_ISSUER: ${JWT_ISSUER:-http://localhost:8001}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-cognitia-api}
+
+      # GPU tier (optional)
+      COGNITIA_CORE_URL: ${COGNITIA_CORE_URL:-http://host.docker.internal:8080}
+      MEMORY_SERVICE_URL: ${MEMORY_SERVICE_URL:-http://host.docker.internal:8002}
+
+      # LiveKit token minting (optional)
+      LIVEKIT_URL: ${LIVEKIT_URL:-wss://localhost/livekit}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
       # Static files (web frontend)
       STATIC_FILES_DIR: /app/web
     ports:

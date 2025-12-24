@@ -4,7 +4,7 @@ Provides fast access to:
 - User sessions
 - Recent chat history
 - Character preprompts
-- Active WebSocket connections
+- Active client connections
 """
 
 import json
@@ -213,9 +213,9 @@ class CacheManager:
         """Invalidate character cache."""
         await self.delete(f"{PREFIX_CHARACTER}{character_id}")
     
-    # Active WebSocket tracking
+    # Active connection tracking
     async def register_ws(self, user_id: str, connection_id: str):
-        """Register an active WebSocket connection."""
+        """Register an active client connection."""
         key = f"{PREFIX_ACTIVE_WS}{user_id}"
         if self._connected and self.redis:
             await self.redis.sadd(key, connection_id)
@@ -229,7 +229,7 @@ class CacheManager:
             self._memory_cache[key] = (connections, time.time() + CACHE_TTL_SESSION)
     
     async def unregister_ws(self, user_id: str, connection_id: str):
-        """Unregister a WebSocket connection."""
+        """Unregister a client connection."""
         key = f"{PREFIX_ACTIVE_WS}{user_id}"
         if self._connected and self.redis:
             await self.redis.srem(key, connection_id)
@@ -239,7 +239,7 @@ class CacheManager:
                 cached[0].discard(connection_id)
     
     async def get_active_connections(self, user_id: str) -> set:
-        """Get active WebSocket connections for a user."""
+        """Get active connections for a user."""
         key = f"{PREFIX_ACTIVE_WS}{user_id}"
         if self._connected and self.redis:
             return await self.redis.smembers(key)

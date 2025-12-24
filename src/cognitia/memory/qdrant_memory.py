@@ -241,30 +241,61 @@ class QdrantMemoryClient:
         logger.info(f"Deleting episodes older than {older_than_days} days with salience < {min_salience}")
 
         try:
-            from datetime import timedelta
+            from datetime import timedelta, timezone
+
             from qdrant_client.models import Filter, FieldCondition, Range
 
-            # Calculate cutoff timestamp
-            cutoff = datetime.utcnow() - timedelta(days=older_than_days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+            deleted_count = 0
 
-            # Delete matching points
-            result = self.client.delete(
-                collection_name=self.collection_name,
-                points_selector=Filter(
-                    must=[
-                        FieldCondition(
-                            key="timestamp",
-                            range=Range(lt=cutoff.isoformat()),
-                        ),
-                        FieldCondition(
-                            key="salience_score",
-                            range=Range(lt=min_salience),
-                        ),
-                    ]
-                ),
-            )
+            next_offset = None
+            while True:
+                points, next_offset = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="salience_score",
+                                range=Range(lt=min_salience),
+                            )
+                        ]
+                    ),
+                    limit=256,
+                    offset=next_offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
 
-            deleted_count = result.status if hasattr(result, 'status') else 0
+                if not points:
+                    break
+
+                ids_to_delete = []
+                for point in points:
+                    payload = getattr(point, "payload", None) or {}
+                    timestamp_str = payload.get("timestamp")
+                    if not timestamp_str:
+                        continue
+
+                    try:
+                        parsed = datetime.fromisoformat(str(timestamp_str).replace("Z", "+00:00"))
+                        if parsed.tzinfo is None:
+                            parsed = parsed.replace(tzinfo=timezone.utc)
+                    except Exception:
+                        continue
+
+                    if parsed < cutoff:
+                        ids_to_delete.append(point.id)
+
+                if ids_to_delete:
+                    self.client.delete(
+                        collection_name=self.collection_name,
+                        points_selector=ids_to_delete,
+                    )
+                    deleted_count += len(ids_to_delete)
+
+                if next_offset is None:
+                    break
+
             logger.info(f"Deleted {deleted_count} old episodes")
             return deleted_count
 

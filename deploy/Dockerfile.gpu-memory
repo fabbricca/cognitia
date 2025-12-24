@@ -1,0 +1,37 @@
+# GPU-host memory service (Graphiti + Qdrant + Neo4j)
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Base server deps
+RUN pip install --no-cache-dir \
+    fastapi[standard] \
+    uvicorn[standard] \
+    python-multipart \
+    pydantic \
+    pydantic-settings \
+    httpx
+
+# Memory add-on deps
+COPY src/cognitia/memory/requirements.txt /tmp/memory-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/memory-requirements.txt
+
+# Copy code
+COPY src/cognitia ./cognitia
+
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+ENV PORT=8000
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=5 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
+CMD ["sh", "-c", "uvicorn cognitia.memory.server:app --host 0.0.0.0 --port ${PORT}"]

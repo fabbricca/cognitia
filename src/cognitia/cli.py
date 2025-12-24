@@ -185,7 +185,7 @@ def core_server(host: str = "0.0.0.0", port: int = 8080) -> None:
     """
     Start the Core server (GPU-side AI processing).
     
-    This runs the HTTP/WebSocket server that handles ASR/LLM/TTS processing.
+    This runs the HTTP server that handles ASR/LLM/TTS processing.
     """
     import uvicorn
     from .core.server import app
@@ -196,7 +196,7 @@ def entrance_server(host: str = "0.0.0.0", port: int = 8000) -> None:
     """
     Start the Entrance server (K8s-side auth/proxy).
     
-    This runs the HTTP/WebSocket server that handles authentication,
+    This runs the HTTP API server that handles authentication,
     CRUD operations, and proxies requests to the Core server.
     """
     import uvicorn

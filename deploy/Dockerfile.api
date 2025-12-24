@@ -33,8 +33,9 @@ RUN pip install --no-cache-dir \
     python-multipart \
     aiofiles \
     loguru \
-    websockets \
     httpx \
+    redis \
+    livekit-api \
     cryptography
 
 # Copy source code - only API module needed

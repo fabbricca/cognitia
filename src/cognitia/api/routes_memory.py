@@ -548,16 +548,16 @@ async def get_persona(
 
     # Get persona
     try:
-        persona = await memory_client.get_persona(
+        persona_payload = await memory_client.get_persona(
             user_id=user_id,
             character_id=character_id,
         )
 
-        if persona:
+        if persona_payload and persona_payload.get("exists"):
             return PersonaGetResponse(
                 exists=True,
-                persona=persona,
-                updated_at=None,  # TODO: Get from memory service response
+                persona=persona_payload.get("persona"),
+                updated_at=persona_payload.get("updated_at"),
             )
         else:
             return PersonaGetResponse(

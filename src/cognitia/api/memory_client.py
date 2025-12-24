@@ -72,7 +72,7 @@ class MemoryClient:
             "character_id": str(character_id),
             "user_message": user_message,
             "assistant_response": assistant_response,
-            "extracted_facts": [],  # TODO: Pre-extract facts if needed
+            "extracted_facts": [],
             "timestamp": timestamp.isoformat(),
         }
 
@@ -137,7 +137,7 @@ class MemoryClient:
             character_id: Character ID
 
         Returns:
-            Persona data or None if not found/failed
+            Memory service persona payload or None if failed
         """
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -145,10 +145,7 @@ class MemoryClient:
                     f"{self.base_url}/persona/{user_id}/{character_id}",
                 )
                 response.raise_for_status()
-                data = response.json()
-                if data.get("exists"):
-                    return data.get("persona")
-                return None
+                return response.json()
         except Exception as e:
             logger.debug(f"Persona retrieval failed: {e}")
             return None

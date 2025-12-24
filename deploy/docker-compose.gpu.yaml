@@ -1,0 +1,159 @@
+# GPU host compose
+# Usage:
+#   docker compose -f deploy/docker-compose.gpu.yaml --env-file deploy/.env.gpu up -d
+#
+# Notes:
+# - `orchestrator` publishes memory updates to Redis Streams; `memory-worker` consumes them.
+#   Both must reach the SAME Redis instance (often the K8S Redis exposed to the GPU host).
+#   Set REDIS_URL accordingly (either point to your K8S-exposed Redis or enable the
+#   local `redis` service via `--profile local-redis`).
+
+services:
+  neo4j:
+    image: neo4j:5.26
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-password}
+    volumes:
+      - neo4j_data:/data
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    restart: unless-stopped
+
+  # Optional local Redis on the GPU host.
+  redis:
+    profiles: ["local-redis"]
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    restart: unless-stopped
+
+  memory:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gpu-memory
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-cognitia_episodes}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      PERSONA_STORAGE_DIR: /data/personas
+    volumes:
+      - memory_personas:/data/personas
+    ports:
+      - "${MEMORY_PORT:-8002}:8000"
+    depends_on:
+      - neo4j
+      - qdrant
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gpu-service
+    environment:
+      APP_MODULE: cognitia.orchestrator.server
+      PORT: 8080
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      MEMORY_SERVICE_URL: ${MEMORY_SERVICE_URL:-http://memory:8000}
+      MEMORY_RETRIEVE_LIMIT: ${MEMORY_RETRIEVE_LIMIT:-8}
+      MEMORY_CONTEXT_MAX_CHARS: ${MEMORY_CONTEXT_MAX_CHARS:-4000}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      MEMORY_UPDATE_STREAM: ${MEMORY_UPDATE_STREAM:-cognitia:memory_updates}
+      RVC_MODELS_DIR: ${RVC_MODELS_DIR:-/rvc_models}
+    volumes:
+      - ../rvc_models:${RVC_MODELS_DIR:-/rvc_models}:ro
+    ports:
+      - "${ORCHESTRATOR_PORT:-8080}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  memory-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gpu-service
+    environment:
+      APP_MODULE: cognitia.memory_worker.server
+      PORT: 8005
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      MEMORY_UPDATE_STREAM: ${MEMORY_UPDATE_STREAM:-cognitia:memory_updates}
+      MEMORY_CONSUMER_GROUP: ${MEMORY_CONSUMER_GROUP:-memory-worker}
+      MEMORY_CONSUMER_NAME: ${MEMORY_CONSUMER_NAME:-gpu-memory-worker}
+      MEMORY_SERVICE_URL: ${MEMORY_SERVICE_URL:-http://memory:8000}
+    ports:
+      - "${MEMORY_WORKER_PORT:-8005}:8005"
+    depends_on:
+      - memory
+    restart: unless-stopped
+
+  stt:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gpu-stt
+    environment:
+      APP_MODULE: cognitia.stt.server
+      PORT: 8003
+      STT_ENGINE: ${STT_ENGINE:-ctc}
+      COGNITIA_RESOURCES_ROOT: ${COGNITIA_RESOURCES_ROOT:-/data/resources}
+    volumes:
+      - ../data/resources:${COGNITIA_RESOURCES_ROOT:-/data/resources}:ro
+    ports:
+      - "${STT_PORT:-8003}:8003"
+    restart: unless-stopped
+
+  tts:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gpu-tts
+    environment:
+      APP_MODULE: cognitia.tts.server
+      PORT: 8004
+      TTS_VOICE: ${TTS_VOICE:-cognitia}
+      COGNITIA_RESOURCES_ROOT: ${COGNITIA_RESOURCES_ROOT:-/data/resources}
+      RVC_SERVICE_URL: ${RVC_SERVICE_URL:-http://rvc:5050}
+    volumes:
+      - ../data/resources:${COGNITIA_RESOURCES_ROOT:-/data/resources}:ro
+    ports:
+      - "${TTS_PORT:-8004}:8004"
+    restart: unless-stopped
+
+  # Optional voice conversion service.
+  # Enable with: docker compose -f deploy/docker-compose.gpu.yaml --profile rvc up -d
+  rvc:
+    profiles: ["rvc"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gpu-rvc
+    environment:
+      PORT: 5050
+    volumes:
+      - ../rvc_models:/rvc_models
+      - ../data/rvc:/data/rvc
+    ports:
+      - "${RVC_PORT:-5050}:5050"
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:
+  qdrant_data:
+  redis_data:
+  memory_personas:

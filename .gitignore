@@ -170,3 +170,11 @@ cython_debug/
 
 
 archived/
+
+# Local runtime data (models, caches, downloads)
+data/
+
+# Local scratch files
+tests.log
+tmp_test/
+hi.txt
