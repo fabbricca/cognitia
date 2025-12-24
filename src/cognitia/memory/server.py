@@ -190,7 +190,7 @@ async def ingest_conversation(request: IngestRequest):
         )
 
         # 1. Extract facts and emotional context from conversation
-        from llm_utils import call_ollama, extract_json_from_response
+        from .llm_utils import call_ollama, extract_json_from_response
         import uuid
 
         extraction_prompt = f'''Extract facts and emotional context from this conversation exchange.

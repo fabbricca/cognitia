@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from .config import settings
-from llm_utils import call_ollama, extract_json_array_from_response
+from .llm_utils import call_ollama, extract_json_array_from_response
 
 logger = logging.getLogger(__name__)
 
