@@ -33,7 +33,7 @@ async def call_ollama(
         httpx.HTTPError: If the request fails
     """
     # Import here to avoid circular dependency
-    from config import settings
+    from .config import settings
 
     # Use settings defaults if not provided
     if model is None:

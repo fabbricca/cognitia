@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir \
     asyncpg \
     psycopg2-binary \
     pydantic \
+    email-validator \
     bcrypt \
     PyJWT[crypto] \
     httpx \

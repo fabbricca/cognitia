@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from config import settings
+from .config import settings
 from llm_utils import call_ollama, extract_json_from_response
 
 logger = logging.getLogger(__name__)

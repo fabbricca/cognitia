@@ -8,8 +8,8 @@ from typing import Any, Optional
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import settings
-from models import (
+from .config import settings
+from .models import (
     DistillRequest,
     DistillResponse,
     GraphResponse,
@@ -49,8 +49,8 @@ async def lifespan(app: FastAPI):
     # Initialize clients
     try:
         # Import here to avoid circular dependencies
-        from qdrant_memory import QdrantMemoryClient
-        from persona_store import PersonaStore
+        from .qdrant_memory import QdrantMemoryClient
+        from .persona_store import PersonaStore
 
         # Initialize raw Neo4j driver for graph export (optional).
         # This should work even if Graphiti/LLM init fails.
@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
 
         # Initialize Graphiti (optional - depends on Graphiti + Ollama/OpenAI-compatible endpoint)
         try:
-            from graphiti_client import GraphitiMemoryClient
+            from .graphiti_client import GraphitiMemoryClient
 
             graphiti_client = GraphitiMemoryClient(
                 neo4j_uri=settings.NEO4J_URI,

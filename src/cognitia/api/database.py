@@ -12,7 +12,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -21,22 +21,35 @@ from sqlalchemy.orm import (
     sessionmaker,
 )
 
-# Database URL from environment or default to SQLite for development
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "sqlite+aiosqlite:///./data/cognitia.db"
-)
+_engine: AsyncEngine | None = None
+_async_sessionmaker: sessionmaker | None = None
 
-# Create async engine
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_async_engine(DATABASE_URL, echo=False)
-else:
-    engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
 
-# Session factory
-async_session = sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False
-)
+def _get_database_url() -> str:
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not set")
+    return database_url
+
+
+def get_engine() -> AsyncEngine:
+    global _engine
+
+    if _engine is None:
+        database_url = _get_database_url()
+        kwargs: dict[str, object] = {"echo": False}
+        if not database_url.startswith("sqlite"):
+            kwargs["pool_pre_ping"] = True
+        _engine = create_async_engine(database_url, **kwargs)
+    return _engine
+
+
+def get_sessionmaker() -> sessionmaker:
+    global _async_sessionmaker
+
+    if _async_sessionmaker is None:
+        _async_sessionmaker = sessionmaker(get_engine(), class_=AsyncSession, expire_on_commit=False)
+    return _async_sessionmaker
 
 
 class Base(DeclarativeBase):
@@ -169,11 +182,11 @@ class Message(Base):
 
 async def init_db():
     """Initialize database tables."""
-    async with engine.begin() as conn:
+    async with get_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
 async def get_session() -> AsyncSession:
     """Get database session for dependency injection."""
-    async with async_session() as session:
+    async with get_sessionmaker()() as session:
         yield session
