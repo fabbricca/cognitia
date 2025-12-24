@@ -129,21 +129,16 @@ Key ports (defaults):
 
 ```bash
 # Register a user
-curl -X POST http://localhost:8000/api/v2/auth/register \
+curl -X POST http://localhost:8000/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "email": "test@example.com",
     "password": "SecurePass123",
-    "first_name": "Test"
+    "name": "Test"
   }'
 
-# Manually verify email (dev only)
-docker exec cognitia-postgres-dev \
-  psql -U cognitia -d cognitia \
-  -c "UPDATE users SET email_verified = true WHERE email = 'test@example.com';"
-
 # Login and get JWT token
-curl -X POST http://localhost:8000/api/v2/auth/login \
+curl -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "test@example.com",
@@ -154,62 +149,63 @@ curl -X POST http://localhost:8000/api/v2/auth/login \
 export TOKEN="<your_access_token>"
 
 # Create a character
-curl -X POST http://localhost:8000/api/v2/characters \
+curl -X POST http://localhost:8000/api/characters/ \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Assistant",
     "system_prompt": "You are a helpful AI assistant.",
-    "voice_model": "af_bella",
-    "prompt_template": "pygmalion"
+    "voice_model": "af_bella"
+  }'
+
+# Create a chat
+export CHARACTER_ID="<character_id_from_previous_response>"
+curl -X POST http://localhost:8000/api/chats/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "character_id": '"\"$CHARACTER_ID\""'
+  }'
+
+# Stream a response via sentence-level SSE
+export CHAT_ID="<chat_id_from_previous_response>"
+curl -N -X POST http://localhost:8000/api/chat/stream \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "chat_id": '"\"$CHAT_ID\""',
+    "character_id": '"\"$CHARACTER_ID\""',
+    "message": "Hello!",
+    "prefer_orchestrator": true
   }'
 ```
 
 ## API Endpoints
 
-### Authentication (`/api/v2/auth`)
-- `POST /register` - Register with email verification
-- `POST /login` - Authenticate and get JWT tokens
-- `POST /verify-email` - Verify email with token
-- `POST /request-password-reset` - Request password reset
-- `POST /reset-password` - Reset password with token
-- `POST /refresh` - Refresh access token
-- `GET /me` - Get current user info
+Current API is served under `/api/*`:
 
-### Users (`/api/v2/users`)
-- `GET /me` - Get full user profile
-- `PATCH /me` - Update user profile
-- `DELETE /me` - Delete user account
+### Auth (`/api/auth`)
+- `POST /register`
+- `POST /login`
+- `GET /me`
 
-### Characters (`/api/v2/characters`)
-- `POST /` - Create character
-- `GET /` - List user's characters
-- `GET /marketplace` - Browse public characters
-- `GET /{id}` - Get character details
-- `PATCH /{id}` - Update character
-- `DELETE /{id}` - Delete character
-- `POST /{id}/voice-permission` - Grant RVC voice access
-- `DELETE /{id}/voice-permission/{user_id}` - Revoke access
+### Characters (`/api/characters`)
+- `POST /`
+- `GET /`
+- `GET /{character_id}`
 
-### Chats (`/api/v2/chats`)
-- `POST /` - Create chat with characters
-- `GET /` - List chats with unread counts
-- `GET /{id}` - Get chat details
-- `PATCH /{id}` - Update chat
-- `DELETE /{id}` - Delete chat
-- `POST /{id}/participants` - Add participant
-- `DELETE /{id}/participants/{user_id}` - Remove participant
-- `POST /{id}/characters` - Add character to chat
-- `DELETE /{id}/characters/{character_id}` - Remove character
-- `GET /{id}/messages` - List messages with pagination
-- `POST /{id}/messages` - Send message (triggers AI response)
+### Chats (`/api/chats`)
+- `POST /`
+- `GET /`
+- `GET /{chat_id}/messages`
+- `POST /{chat_id}/messages` (persistence)
 
-### Subscriptions (`/api/v2/subscription`)
-- `GET /plans` - List subscription plans (public)
-- `GET /current` - Get current subscription
-- `GET /usage` - Get usage statistics
-- `POST /cancel` - Cancel subscription
-- `POST /reactivate` - Reactivate cancelled subscription
+### Streaming Chat (`/api/chat/stream`)
+- `POST /stream` (sentence-level SSE)
+
+### Memory UI (`/api/memory/{character_id}/*`)
+- `GET /context`
+- `GET /graph`
 
 ## Development
 

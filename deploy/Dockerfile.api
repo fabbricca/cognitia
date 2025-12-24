@@ -42,15 +42,12 @@ RUN pip install --no-cache-dir \
 RUN mkdir -p ./cognitia && echo '"""Cognitia API."""\n__version__ = "0.1.0"' > ./cognitia/__init__.py
 COPY src/cognitia/api ./cognitia/api
 
-# Copy web frontend (static assets + avatars mountpoint)
-COPY web ./web
-
 # Fix permissions on all copied files and create data directories
 # Give cognitia user ownership of /app for development (alembic init, etc.)
-RUN chmod -R a+r /app/cognitia /app/web && \
+RUN chmod -R a+r /app/cognitia && \
     find /app/cognitia -type d -exec chmod a+rx {} \; && \
-    find /app/web -type d -exec chmod a+rx {} \; && \
     mkdir -p /app/data /app/web/avatars && \
+    chmod -R a+rx /app/web && \
     chown -R cognitia:cognitia /app
 
 # Set environment variables

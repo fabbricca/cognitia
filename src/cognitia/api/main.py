@@ -11,11 +11,9 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from .cache import init_cache, close_cache
@@ -103,13 +101,6 @@ def create_app() -> FastAPI:
 
 # Create app instance
 app = create_app()
-
-# Mount static files (must be last)
-web_dir = Path("/app/web")
-if not web_dir.exists():
-    web_dir = Path(__file__).parent.parent.parent.parent / "web"
-if web_dir.exists():
-    app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="static")
 
 
 def run():
