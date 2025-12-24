@@ -48,7 +48,15 @@ Internal Functions:
 from pathlib import Path
 from typing import Any, Literal
 
-from numba import jit  # type: ignore
+try:
+    from numba import jit  # type: ignore
+except Exception:  # pragma: no cover
+    def jit(*_args: Any, **_kwargs: Any):  # type: ignore
+        def _decorator(func):
+            return func
+
+        return _decorator
+
 import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field
